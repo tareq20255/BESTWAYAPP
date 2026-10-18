@@ -34,9 +34,10 @@ const MODULES = [
     name: 'printqueue',
     file: 'src/printqueue.js',
     exports: {
-      wsUsbDescribe: 'describeUsbError',
+      wsPrintDescribe: 'describePrintError',
       wsUsbSession: 'createUsbSession',
-      wsUsbSender: 'usbSender',
+      wsBleSession: 'createBleSession',
+      wsSessionSender: 'sessionSender',
       wsRunQueue: 'runQueue',
     },
   },
