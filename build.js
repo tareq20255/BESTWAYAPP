@@ -41,6 +41,11 @@ const MODULES = [
     },
   },
   {
+    name: 'logo',
+    file: 'src/logo.js',
+    exports: { wsLogoProcess: 'processLogoFile', wsLogoMsg: 'logoMessage' },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {
