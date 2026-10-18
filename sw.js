@@ -1,4 +1,4 @@
-const C='wa2p-v1.16.0';const A=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png'];
+const C='wa2p-v1.17.0';const A=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png'];
 // المشاركة من واتساب: نفس الاسم والمفتاح في src/share.js (SHARE_CACHE / SHARE_KEY)
 const SHARE='wa2p-share',KEY='payload';
 async function handleShare(q){try{const f=await q.formData();const t=[f.get('text'),f.get('url'),f.get('title')].map(x=>x?String(x).trim():'').find(Boolean)||'';if(t){const c=await caches.open(SHARE);await c.put(KEY,new Response(t))}}catch(_){}return Response.redirect(new URL('./?share=1',self.registration.scope).href,303)}
