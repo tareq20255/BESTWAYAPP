@@ -15,6 +15,6 @@ const parser = new Function(`${src}\nreturn {isOrder:s$, parseOrder:sB, parseMes
 const hStart = html.indexOf('var hxK=');
 const hEnd = html.indexOf('function c8({text:e');
 if (hStart < 0 || hEnd < hStart) throw new Error('تعذر العثور على دوال السجل في index.html');
-const history = new Function(`${html.slice(hStart, hEnd)}\nreturn {add:hxAdd, max:hxMax};`)();
+const history = new Function(`${html.slice(hStart, hEnd)}\nreturn {add:hxAdd, max:hxMax, tplClean:hxTplClean, tplDefaults:hxTD};`)();
 
 module.exports = { ...parser, history };
