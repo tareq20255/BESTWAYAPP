@@ -59,6 +59,17 @@ const MODULES = [
     },
   },
   {
+    name: 'printsettings',
+    file: 'src/printsettings.js',
+    exports: {
+      wsPrintLoad: 'loadPrintSettings',
+      wsPrintSave: 'savePrintSettings',
+      wsDots: 'dotsFor',
+      wsWithPaper: 'withPaper',
+      wsWithDots: 'withDots',
+    },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {
