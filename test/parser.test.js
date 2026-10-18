@@ -251,3 +251,14 @@ test('السحب: لا شيء مطبوع → الكل جديد', () => {
   const r = storage.splitPrinted([EN], new Map(), parseMessage);
   assert.deepEqual(r, { fresh: [EN], printed: [] });
 });
+
+test('السجل: نفس النص بأرقام جديدة يدمج الأرقام (طباعة جزئية ثم إكمال)', () => {
+  const two = EN + '\n\n' + EN.replace('BW-1', 'BW-2');
+  const orders = parseMessage(two);
+  const first = history.add([], two, [orders[0]], 1);
+  assert.deepEqual(first[0].refs, ['BW-1']);
+  const second = history.add(first, two, [orders[1]], 2);
+  assert.equal(second.length, 1);
+  assert.deepEqual(second[0].refs, ['BW-1', 'BW-2']);
+  assert.equal(second[0].at, 2);
+});
