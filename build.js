@@ -31,6 +31,16 @@ const MODULES = [
     exports: { wsBlobReader: 'blobReader', wsZipText: 'extractChatText', wsZipMsg: 'zipMessage' },
   },
   {
+    name: 'printqueue',
+    file: 'src/printqueue.js',
+    exports: {
+      wsUsbDescribe: 'describeUsbError',
+      wsUsbSession: 'createUsbSession',
+      wsUsbSender: 'usbSender',
+      wsRunQueue: 'runQueue',
+    },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {

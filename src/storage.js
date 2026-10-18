@@ -25,14 +25,17 @@ function saveHistory(list) {
   }
 }
 
-// يضيف النص في أول السجل (بدون تكرار) ويقصّ على آخر HISTORY_MAX
+// يضيف النص في أول السجل (بدون تكرار) ويقصّ على آخر HISTORY_MAX.
+// لو النص موجود من قبل نجمع أرقامه المرجعية (طباعة جزئية ثم إكمال الباقي)
 function addToHistory(list, text, orders, now) {
   if (!text || !text.trim() || !orders.length) return list;
+  const previous = list.find((item) => item.text === text);
+  const refs = orders.map((order) => order.ref).filter(Boolean);
   const entry = {
     id: now,
     at: now,
     text,
-    refs: orders.map((order) => order.ref).filter(Boolean),
+    refs: [...new Set([...((previous && previous.refs) || []), ...refs])],
     count: orders.length,
   };
   return [entry, ...list.filter((item) => item.text !== text)].slice(0, HISTORY_MAX);
