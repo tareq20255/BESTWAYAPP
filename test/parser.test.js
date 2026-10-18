@@ -203,3 +203,16 @@ test('السجل: الحد الأقصى 50 والأحدث أولاً', () => {
   assert.equal(list.length, history.max);
   assert.equal(list[0].refs[0], 'BW-59');
 });
+
+test('القالب: تنظيف المسافات وقص الطول وتجاهل الحقول الغريبة', () => {
+  const c = history.tplClean({ brand: '  بست واي  ', header: 'x'.repeat(200), footer: null, evil: '<b>' });
+  assert.deepEqual(Object.keys(c), ['brand', 'header', 'footer']);
+  assert.equal(c.brand, 'بست واي');
+  assert.equal(c.header.length, 80);
+  assert.equal(c.footer, '');
+});
+
+test('القالب: قيم فارغة عند غياب الإعدادات', () => {
+  assert.deepEqual(history.tplClean(undefined), { brand: '', header: '', footer: '' });
+  assert.deepEqual(history.tplClean({}), history.tplDefaults);
+});
