@@ -5,8 +5,21 @@
 const HISTORY_KEY = 'wa2p-orders-v1';
 const HISTORY_MAX = 50;
 const TEMPLATE_KEY = 'wa2p-tpl-v1';
-const TEMPLATE_DEFAULTS = { brand: '', header: '', footer: '' };
+const TEMPLATE_DEFAULTS = {
+  brand: '',
+  header: '',
+  footer: '',
+  logo: '',
+  logoRatio: 0,
+  logoSize: 'm',
+  logoReplacesBrand: true,
+};
+const TEMPLATE_TEXT_FIELDS = ['brand', 'header', 'footer'];
 const TEMPLATE_FIELD_MAX = 80;
+const LOGO_SIZES = ['s', 'm', 'l'];
+// الشعار يُقبل فقط كـ PNG بصيغة data: (من معالجتنا) وبحد أقصى للحجم، فلا تُحمَّل صور من الإنترنت
+const LOGO_RE = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
+const LOGO_MAX_CHARS = 200000;
 
 function loadHistory() {
   try {
@@ -63,14 +76,21 @@ function splitPrinted(texts, printed, parseMessage) {
   return { fresh, printed: already };
 }
 
-// يُبقي الحقول المعروفة فقط، نصوصًا مقصوصة وبحد أقصى للطول
+// ينظّف إعدادات القالب: نصوص مقصوصة، شعار صالح فقط، وقيم محدودة. الحقول الغريبة تُهمَل
 function cleanTemplate(template) {
+  const src = template || {};
   const out = {};
-  for (const key of Object.keys(TEMPLATE_DEFAULTS)) {
-    out[key] = String((template && template[key]) || '')
+  for (const key of TEMPLATE_TEXT_FIELDS) {
+    out[key] = String(src[key] || '')
       .trim()
       .slice(0, TEMPLATE_FIELD_MAX);
   }
+  const logoOk = typeof src.logo === 'string' && src.logo.length <= LOGO_MAX_CHARS && LOGO_RE.test(src.logo);
+  const ratio = Number(src.logoRatio);
+  out.logo = logoOk ? src.logo : '';
+  out.logoRatio = logoOk && ratio >= 0.05 && ratio <= 4 ? ratio : 0;
+  out.logoSize = LOGO_SIZES.includes(src.logoSize) ? src.logoSize : 'm';
+  out.logoReplacesBrand = src.logoReplacesBrand !== false;
   return out;
 }
 

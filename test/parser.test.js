@@ -214,15 +214,39 @@ test('السجل: الحد الأقصى 50 والأحدث أولاً', () => {
 
 test('القالب: تنظيف المسافات وقص الطول وتجاهل الحقول الغريبة', () => {
   const c = history.tplClean({ brand: '  بست واي  ', header: 'x'.repeat(200), footer: null, evil: '<b>' });
-  assert.deepEqual(Object.keys(c), ['brand', 'header', 'footer']);
+  assert.deepEqual(Object.keys(c), Object.keys(history.tplDefaults));
   assert.equal(c.brand, 'بست واي');
   assert.equal(c.header.length, 80);
   assert.equal(c.footer, '');
+  assert.equal(c.evil, undefined);
 });
 
-test('القالب: قيم فارغة عند غياب الإعدادات', () => {
-  assert.deepEqual(history.tplClean(undefined), { brand: '', header: '', footer: '' });
+test('القالب: قيم افتراضية عند غياب الإعدادات', () => {
+  assert.deepEqual(history.tplClean(undefined), history.tplDefaults);
   assert.deepEqual(history.tplClean({}), history.tplDefaults);
+});
+
+const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+
+test('القالب: الشعار يُقبل كـ PNG data فقط ويُرفض غيره', () => {
+  const ok = history.tplClean({ logo: PNG, logoRatio: 0.5 });
+  assert.equal(ok.logo, PNG);
+  assert.equal(ok.logoRatio, 0.5);
+  for (const bad of ['https://evil.example/x.png', 'data:image/svg+xml;base64,PHN2Zz4=', 'data:image/png;base64,@@@', 'javascript:alert(1)', 5, null]) {
+    const c = history.tplClean({ logo: bad, logoRatio: 0.5 });
+    assert.equal(c.logo, '', String(bad));
+    assert.equal(c.logoRatio, 0);
+  }
+  assert.equal(history.tplClean({ logo: PNG + 'A'.repeat(200000) }).logo, '');
+});
+
+test('القالب: نسبة الشعار وحجمه وخيار الاستبدال ضمن قيم مسموحة', () => {
+  assert.equal(history.tplClean({ logo: PNG, logoRatio: 99 }).logoRatio, 0);
+  assert.equal(history.tplClean({ logo: PNG, logoRatio: 0.001 }).logoRatio, 0);
+  assert.equal(history.tplClean({ logoSize: 'xl' }).logoSize, 'm');
+  assert.equal(history.tplClean({ logoSize: 'l' }).logoSize, 'l');
+  assert.equal(history.tplClean({}).logoReplacesBrand, true);
+  assert.equal(history.tplClean({ logoReplacesBrand: false }).logoReplacesBrand, false);
 });
 
 test('السجل: printedRefs يجمع الأرقام ويحتفظ بآخر وقت طباعة', () => {
