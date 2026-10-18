@@ -16,6 +16,16 @@ const MODULES = [
     exports: { s$: 'isOrder', sH: 'parseMessage' },
   },
   {
+    name: 'share',
+    file: 'src/share.js',
+    exports: {
+      wsIsShare: 'isShareLaunch',
+      wsTake: 'takeSharedText',
+      wsReadClipboard: 'readClipboardText',
+      wsClipMsg: 'clipboardMessage',
+    },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {

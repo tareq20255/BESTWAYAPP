@@ -6,6 +6,7 @@
 
 - `index.html` — الملف المنشور (GitHub Pages). **bundle جاهز**: React وTailwind وواجهة التطبيق مصغّرة، والمصدر الأصلي لها غير موجود في هذا المستودع.
 - `src/parser.js` — قارئ الأوردرات (مصدر مقروء).
+- `src/share.js` — استقبال الأوردر من المشاركة (Web Share Target) ومن الحافظة.
 - `src/storage.js` — سجل الطلبات المطبوعة وإعدادات قالب الإيصال.
 - `build.js` — يحقن ملفات `src/` داخل `index.html` بين علامات `/*@src اسم*/ … /*@end اسم*/`.
 - `test/` — اختبارات `node:test`.
@@ -26,3 +27,10 @@ npm run build    # بعد تعديل أي ملف في src/
 
 الواجهة المصغّرة تستدعي الدوال بأسماء قصيرة. الربط بين اسم المصدر واسم الـ bundle في `MODULES` داخل `build.js`
 (مثل `s$ ← isOrder` و`sH ← parseMessage`). أضف الدالة في `module.exports` بالمصدر ثم أضفها لخريطة `exports` هناك.
+
+## المشاركة من واتساب (Web Share Target)
+
+`manifest.webmanifest` فيه `share_target` بـ POST على `./share-target`. `sw.js` يعترض الطلب ويحفظ النص في Cache باسم `wa2p-share`
+ثم يحوّل إلى `./?share=1`، والتطبيق يقرأ النص ويمسحه. بهذا لا يمر النص بأي سيرفر ولا يظهر في الرابط.
+اسم الـ Cache والمفتاح مكرران بين `sw.js` و`src/share.js` وفي `test/share.test.js` اختبار يتأكد من تطابقهما.
+الميزة تعمل على أندرويد (Chrome) بعد تثبيت التطبيق؛ iOS لا يدعمها.
