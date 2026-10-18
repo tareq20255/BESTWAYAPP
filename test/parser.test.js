@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isOrder, parseMessage, history } = require('./load-parser');
+const { isOrder, parseMessage } = require('../src/parser');
+const storage = require('../src/storage');
+
+const history = {
+  add: storage.addToHistory,
+  max: storage.HISTORY_MAX,
+  tplClean: storage.cleanTemplate,
+  tplDefaults: storage.TEMPLATE_DEFAULTS,
+};
 
 const EN = `*BESTWAY · ONLINE ORDER*
 Ref: BW-1
