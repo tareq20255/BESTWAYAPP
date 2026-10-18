@@ -286,3 +286,21 @@ test('السجل: نفس النص بأرقام جديدة يدمج الأرقا�
   assert.deepEqual(second[0].refs, ['BW-1', 'BW-2']);
   assert.equal(second[0].at, 2);
 });
+
+const JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+
+test('القالب: النسخة الرمادية JPEG فقط ومع وجود شعار، ونمط وعكس ضمن قيم مسموحة', () => {
+  const ok = history.tplClean({ logo: PNG, logoSrc: JPG, logoMode: 'dither', logoInvert: true });
+  assert.equal(ok.logoSrc, JPG);
+  assert.equal(ok.logoMode, 'dither');
+  assert.equal(ok.logoInvert, true);
+  // بدون شعار لا نسخة
+  assert.equal(history.tplClean({ logoSrc: JPG }).logoSrc, '');
+  for (const bad of [PNG, 'https://evil.example/x.jpg', 'data:image/jpeg;base64,@@', 5, null]) {
+    assert.equal(history.tplClean({ logo: PNG, logoSrc: bad }).logoSrc, '', String(bad));
+  }
+  assert.equal(history.tplClean({ logo: PNG, logoSrc: JPG + 'A'.repeat(300000) }).logoSrc, '');
+  assert.equal(history.tplClean({ logoMode: 'sepia' }).logoMode, 'threshold');
+  assert.equal(history.tplClean({ logoInvert: 'yes' }).logoInvert, false);
+  assert.equal(history.tplClean({}).logoMode, 'threshold');
+});

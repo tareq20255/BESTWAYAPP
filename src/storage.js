@@ -10,6 +10,9 @@ const TEMPLATE_DEFAULTS = {
   header: '',
   footer: '',
   logo: '',
+  logoSrc: '',
+  logoMode: 'threshold',
+  logoInvert: false,
   logoRatio: 0,
   logoSize: 'm',
   logoReplacesBrand: true,
@@ -20,6 +23,9 @@ const LOGO_SIZES = ['s', 'm', 'l'];
 // الشعار يُقبل فقط كـ PNG بصيغة data: (من معالجتنا) وبحد أقصى للحجم، فلا تُحمَّل صور من الإنترنت
 const LOGO_RE = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
 const LOGO_MAX_CHARS = 200000;
+// النسخة الرمادية المصغّرة (JPEG) التي نعيد منها المعالجة عند تغيير النمط
+const LOGO_SRC_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+const LOGO_SRC_MAX_CHARS = 300000;
 
 function loadHistory() {
   try {
@@ -87,7 +93,12 @@ function cleanTemplate(template) {
   }
   const logoOk = typeof src.logo === 'string' && src.logo.length <= LOGO_MAX_CHARS && LOGO_RE.test(src.logo);
   const ratio = Number(src.logoRatio);
+  const srcOk =
+    logoOk && typeof src.logoSrc === 'string' && src.logoSrc.length <= LOGO_SRC_MAX_CHARS && LOGO_SRC_RE.test(src.logoSrc);
   out.logo = logoOk ? src.logo : '';
+  out.logoSrc = srcOk ? src.logoSrc : '';
+  out.logoMode = src.logoMode === 'dither' ? 'dither' : 'threshold';
+  out.logoInvert = src.logoInvert === true;
   out.logoRatio = logoOk && ratio >= 0.05 && ratio <= 4 ? ratio : 0;
   out.logoSize = LOGO_SIZES.includes(src.logoSize) ? src.logoSize : 'm';
   out.logoReplacesBrand = src.logoReplacesBrand !== false;

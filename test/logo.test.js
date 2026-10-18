@@ -71,6 +71,7 @@ test('processLogoFile: صورة تالفة ترجع decode وتحرّر الرا
   }
   const r = await logo.processLogoFile(
     { type: 'image/png', size: 10 },
+    {},
     { URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => revoked++ }, Image: BadImage, document: {} }
   );
   assert.deepEqual(r, { ok: false, reason: 'decode' });
@@ -80,4 +81,93 @@ test('processLogoFile: صورة تالفة ترجع decode وتحرّر الرا
 test('logoMessage: رسالة مختلفة لكل سبب', () => {
   const m = ['not-image', 'too-big', 'too-large-output', 'decode'].map(logo.logoMessage);
   assert.equal(new Set(m).size, 4);
+});
+
+// تدرّج أفقي من الأسود إلى الأبيض (w × h)
+const ramp = (w, h) => image(w, h, (x) => { const v = Math.round((x / (w - 1)) * 255); return [v, v, v, 255]; });
+const blackShare = (data, from, to, w, h) => {
+  let black = 0;
+  let total = 0;
+  for (let y = 0; y < h; y++) for (let x = from; x < to; x++) { total++; if (data[(y * w + x) * 4] === 0) black++; }
+  return black / total;
+};
+
+test('ditherFloydSteinberg: ناتج 0/255 فقط وحتمي، والرمادي المتوسط ≈ نصف أسود', () => {
+  const gray = new Uint8Array(64 * 64).fill(128);
+  const a = logo.ditherFloydSteinberg(gray, 64);
+  const b = logo.ditherFloydSteinberg(gray, 64);
+  assert.ok(a.every((v) => v === 0 || v === 255));
+  assert.deepEqual([...a], [...b]);
+  const black = a.filter((v) => v === 0).length / a.length;
+  assert.ok(black > 0.4 && black < 0.6, `black=${black}`);
+});
+
+test('toMonochrome (تنقيط): التدرّج يتحول لكثافة نقاط تتناقص من الأسود للأبيض', () => {
+  const w = 64;
+  const h = 16;
+  const { data } = logo.toMonochrome(ramp(w, h), { mode: 'dither', width: w });
+  assert.ok([...data].every((v, i) => (i % 4 === 3 ? v === 255 : v === 0 || v === 255)));
+  const left = blackShare(data, 0, 16, w, h);
+  const mid = blackShare(data, 24, 40, w, h);
+  const right = blackShare(data, 48, 64, w, h);
+  assert.ok(left > mid && mid > right, `${left} ${mid} ${right}`);
+  assert.ok(left > 0.7 && right < 0.3);
+});
+
+test('toMonochrome: الحاد يحسم التدرّج لكتلتين، والتنقيط لا يفعل', () => {
+  const w = 64;
+  const h = 8;
+  const sharp = logo.toMonochrome(ramp(w, h), { mode: 'threshold' }).data;
+  // الحاد: أسود ثم أبيض بحدّ واحد في كل صف
+  let flips = 0;
+  for (let x = 1; x < w; x++) if (sharp[x * 4] !== sharp[(x - 1) * 4]) flips++;
+  assert.equal(flips, 1);
+  const dith = logo.toMonochrome(ramp(w, h), { mode: 'dither', width: w }).data;
+  let dflips = 0;
+  for (let x = 1; x < w; x++) if (dith[x * 4] !== dith[(x - 1) * 4]) dflips++;
+  assert.ok(dflips > 3);
+});
+
+test('toMonochrome: عكس الألوان يقلب الأسود والأبيض في النمطين', () => {
+  const w = 10;
+  const px = image(w, 10, (x, y) => (x >= 3 && x < 7 && y >= 3 && y < 7 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
+  for (const mode of ['threshold', 'dither']) {
+    const normal = logo.toMonochrome(px, { mode, width: w }).data;
+    const inv = logo.toMonochrome(px, { mode, width: w, invert: true }).data;
+    assert.equal(at(normal, w, 4, 4), 0);
+    assert.equal(at(inv, w, 4, 4), 255);
+    assert.equal(at(normal, w, 0, 0), 255);
+    assert.equal(at(inv, w, 0, 0), 0);
+  }
+});
+
+test('toMonochrome (تنقيط): صورة بلون واحد لا تتحول لنقاط', () => {
+  const light = logo.toMonochrome(image(8, 8, () => [240, 240, 240, 255]), { mode: 'dither', width: 8 }).data;
+  const dark = logo.toMonochrome(image(8, 8, () => [20, 20, 20, 255]), { mode: 'dither', width: 8 }).data;
+  assert.ok([...light].filter((_, i) => i % 4 === 0).every((v) => v === 255));
+  assert.ok([...dark].filter((_, i) => i % 4 === 0).every((v) => v === 0));
+});
+
+test('toMonochrome (تنقيط): يتطلب width', () => {
+  assert.throws(() => logo.toMonochrome(ramp(8, 8), { mode: 'dither' }), /width/);
+});
+
+test('toMonochrome: نمط غير معروف يُعامل كحاد (الافتراضي)', () => {
+  const a = logo.toMonochrome(ramp(16, 4)).data;
+  const b = logo.toMonochrome(ramp(16, 4), { mode: 'whatever' }).data;
+  assert.deepEqual([...a], [...b]);
+});
+
+test('reprocessLogo: يرفض ما ليس نسخة رمادية JPEG من data:', async () => {
+  for (const bad of ['', null, undefined, 'https://x/y.jpg', 'data:image/png;base64,AAAA', 5]) {
+    assert.deepEqual(await logo.reprocessLogo(bad), { ok: false, reason: 'not-image' }, String(bad));
+  }
+});
+
+test('reprocessLogo: صورة تالفة ترجع decode', async () => {
+  class BadImage {
+    set src(_) { queueMicrotask(() => this.onerror()); }
+  }
+  const r = await logo.reprocessLogo('data:image/jpeg;base64,AAAA', {}, { Image: BadImage, document: {} });
+  assert.deepEqual(r, { ok: false, reason: 'decode' });
 });
