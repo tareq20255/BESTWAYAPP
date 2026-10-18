@@ -38,6 +38,28 @@ function addToHistory(list, text, orders, now) {
   return [entry, ...list.filter((item) => item.text !== text)].slice(0, HISTORY_MAX);
 }
 
+// الأرقام المرجعية (Ref) التي طُبعت من قبل: Map(ref → وقت آخر طباعة)
+function printedRefs(list) {
+  const printed = new Map();
+  for (const entry of list) {
+    for (const ref of entry.refs || []) {
+      if (!printed.has(ref) || printed.get(ref) < entry.at) printed.set(ref, entry.at);
+    }
+  }
+  return printed;
+}
+
+// يفصل نصوص الأوردرات إلى جديدة ومطبوعة سابقًا (كل الـ Ref فيها مطبوع). parseMessage يُمرَّر من القارئ
+function splitPrinted(texts, printed, parseMessage) {
+  const fresh = [];
+  const already = [];
+  for (const text of texts) {
+    const refs = parseMessage(text).map((order) => order.ref).filter(Boolean);
+    (refs.length && refs.every((ref) => printed.has(ref)) ? already : fresh).push(text);
+  }
+  return { fresh, printed: already };
+}
+
 // يُبقي الحقول المعروفة فقط، نصوصًا مقصوصة وبحد أقصى للطول
 function cleanTemplate(template) {
   const out = {};
@@ -71,6 +93,8 @@ module.exports = {
   loadHistory,
   saveHistory,
   addToHistory,
+  printedRefs,
+  splitPrinted,
   cleanTemplate,
   loadTemplate,
   saveTemplate,

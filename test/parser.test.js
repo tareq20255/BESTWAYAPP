@@ -224,3 +224,30 @@ test('القالب: قيم فارغة عند غياب الإعدادات', () =>
   assert.deepEqual(history.tplClean(undefined), { brand: '', header: '', footer: '' });
   assert.deepEqual(history.tplClean({}), history.tplDefaults);
 });
+
+test('السجل: printedRefs يجمع الأرقام ويحتفظ بآخر وقت طباعة', () => {
+  const list = [
+    { id: 3, at: 300, text: 'c', refs: ['BW-1'], count: 1 },
+    { id: 2, at: 200, text: 'b', refs: ['BW-2', 'BW-1'], count: 2 },
+    { id: 1, at: 100, text: 'a', refs: undefined, count: 1 },
+  ];
+  const printed = storage.printedRefs(list);
+  assert.equal(printed.get('BW-1'), 300);
+  assert.equal(printed.get('BW-2'), 200);
+  assert.equal(printed.size, 2);
+});
+
+test('السحب: splitPrinted يفصل المطبوع سابقًا عن الجديد', () => {
+  const t1 = EN;
+  const t2 = EN.replace('BW-1', 'BW-9');
+  const noRef = '*BESTWAY · ONLINE ORDER*\n• 1× 100420 Garlic Peeled 45 EGP';
+  const printed = new Map([['BW-1', 5]]);
+  const r = storage.splitPrinted([t1, t2, noRef], printed, parseMessage);
+  assert.deepEqual(r.printed, [t1]);
+  assert.deepEqual(r.fresh, [t2, noRef]);
+});
+
+test('السحب: لا شيء مطبوع → الكل جديد', () => {
+  const r = storage.splitPrinted([EN], new Map(), parseMessage);
+  assert.deepEqual(r, { fresh: [EN], printed: [] });
+});

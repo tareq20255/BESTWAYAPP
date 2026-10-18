@@ -26,12 +26,19 @@ const MODULES = [
     },
   },
   {
+    name: 'zip',
+    file: 'src/zip.js',
+    exports: { wsBlobReader: 'blobReader', wsZipText: 'extractChatText', wsZipMsg: 'zipMessage' },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {
       hxLoad: 'loadHistory',
       hxSave: 'saveHistory',
       hxAdd: 'addToHistory',
+      hxPrinted: 'printedRefs',
+      hxSplit: 'splitPrinted',
       hxTD: 'TEMPLATE_DEFAULTS',
       hxTplClean: 'cleanTemplate',
       hxTplLoad: 'loadTemplate',
