@@ -47,6 +47,18 @@ const MODULES = [
     exports: { wsLogoProcess: 'processLogoFile', wsLogoMsg: 'logoMessage' },
   },
   {
+    name: 'selection',
+    file: 'src/selection.js',
+    exports: {
+      wsOrderKey: 'orderKey',
+      wsSelected: 'selectedOrders',
+      wsExcludeAll: 'excludeAll',
+      wsExcludePrinted: 'excludePrinted',
+      wsPrune: 'pruneExcluded',
+      wsToggle: 'toggleOrder',
+    },
+  },
+  {
     name: 'storage',
     file: 'src/storage.js',
     exports: {
