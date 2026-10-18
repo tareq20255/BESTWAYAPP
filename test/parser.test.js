@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isOrder, parseMessage } = require('./load-parser');
+const { isOrder, parseMessage, history } = require('./load-parser');
 
 const EN = `*BESTWAY · ONLINE ORDER*
 Ref: BW-1
@@ -173,4 +173,33 @@ Ref: BW-5
 
 test('رسالة بلا أصناف لا تنتج إيصالات', () => {
   assert.deepEqual(parseMessage('*BESTWAY · ONLINE ORDER*\nRef: BW-7'), []);
+});
+
+test('السجل: إضافة أوردر في الأول مع الأرقام المرجعية', () => {
+  const list = history.add([], EN, parseMessage(EN), 1000);
+  assert.equal(list.length, 1);
+  assert.deepEqual(list[0], { id: 1000, at: 1000, text: EN, refs: ['BW-1'], count: 1 });
+});
+
+test('السجل: نفس النص لا يتكرر ويصعد للأول بوقت جديد', () => {
+  const a = history.add([], EN, parseMessage(EN), 1);
+  const b = history.add(a, AR, parseMessage(AR), 2);
+  const c = history.add(b, EN, parseMessage(EN), 3);
+  assert.deepEqual(c.map(h => h.refs[0]), ['BW-1', 'BW-2']);
+  assert.equal(c[0].at, 3);
+});
+
+test('السجل: نص فارغ أو بلا أوردرات لا يُحفظ', () => {
+  assert.deepEqual(history.add([], '   ', [], 1), []);
+  assert.deepEqual(history.add([], EN, [], 1), []);
+});
+
+test('السجل: الحد الأقصى 50 والأحدث أولاً', () => {
+  let list = [];
+  for (let i = 0; i < 60; i++) {
+    const t = EN.replace('BW-1', 'BW-' + i);
+    list = history.add(list, t, parseMessage(t), i);
+  }
+  assert.equal(list.length, history.max);
+  assert.equal(list[0].refs[0], 'BW-59');
 });
