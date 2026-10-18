@@ -122,9 +122,15 @@ Total: 90 EGP`;
   assert.equal(o.items[0].total, 90);
 });
 
-test('سطر غير مفهوم يُتجاهل ولا يكسر باقي الأصناف', () => {
-  const [o] = parseMessage(EN.replace('• 750 g', '• ??? × ???'));
+test('سطر صنف غير مفهوم يظهر كتحذير ولا يكسر باقي الأصناف', () => {
+  const [o] = parseMessage(EN.replace('• 750 g 100392 Bananas ≈ 41.25 EGP', '• Bananas بدون سعر'));
   assert.equal(o.items.length, 1);
+  assert.ok(o.warnings.includes('تعذر قراءة السطر: • Bananas بدون سعر'));
+});
+
+test('سطر غير مفهوم لا يبدأ بنقطة (مثل ملاحظة) لا يولّد تحذيرًا', () => {
+  const [o] = parseMessage(EN.replace('Ordered at', 'شكرا لكم\nOrdered at'));
+  assert.deepEqual(o.warnings, []);
 });
 
 test('عدة أوردرات في رسالة واحدة تُفصل', () => {
