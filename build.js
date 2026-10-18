@@ -44,7 +44,7 @@ const MODULES = [
   {
     name: 'logo',
     file: 'src/logo.js',
-    exports: { wsLogoProcess: 'processLogoFile', wsLogoMsg: 'logoMessage' },
+    exports: { wsLogoProcess: 'processLogoFile', wsLogoReprocess: 'reprocessLogo', wsLogoMsg: 'logoMessage' },
   },
   {
     name: 'selection',
