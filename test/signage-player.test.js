@@ -13,7 +13,10 @@ const CONFIG = { url: 'https://proj.supabase.co', key: 'sb_publishable_test', bu
 const DEVICE = 'testdevice0000000001';
 const MEDIA = 'https://proj.supabase.co/storage/v1/object/public/signage/';
 
-function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing = [] } = {}) {
+const Layout = require('../src/signage-layout');
+
+// media: مقاس ومدة كل ملف بالرابط الكامل {w, h, seconds}. الافتراضي: صورة 1920×1080 وفيديو 360×640
+function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing = [], media = {}, width = 1920, height = 1080 } = {}) {
   let now = 0;
   let seq = 0;
   const timers = new Map();
@@ -41,6 +44,7 @@ function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing
     removeAttribute(k) { delete this.attrs[k]; if (k === 'src') this.dead = true; }
     all() { return this.children.reduce((out, c) => out.concat(c, c.all()), []); }
     querySelector(sel) { return this.all().find((c) => (sel[0] === '#' ? c.id === sel.slice(1) : c.tag === sel)) || null; }
+    querySelectorAll(sel) { return this.all().filter((c) => c.tag === sel); }
     // يكفي للقوالب البسيطة في المشغّل: وسوم متتالية بلا تداخل
     set innerHTML(html) {
       this.children = [];
@@ -56,19 +60,33 @@ function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing
       setTimeout(() => {
         if (this.dead) return;
         if (failing.includes(url)) { if (this.onerror) this.onerror(); return; }
-        if (this.tag !== 'video') { if (this.onload) this.onload(); return; }
-        this.duration = videoSeconds; this.started = now;
-        this.onloadedmetadata(); this.onplaying();
-        const loopOrEnd = () => setTimeout(() => {
-          if (this.dead) return;
-          if (this.loop) { this.started = now; loopOrEnd(); } else this.onended();
-        }, videoSeconds * 1000);
-        loopOrEnd();
+        const m = media[url] || {};
+        if (this.tag !== 'video') {
+          this.naturalWidth = m.w || 1920; this.naturalHeight = m.h || 1080;
+          if (this.onload) this.onload();
+          return;
+        }
+        this.videoWidth = m.w || 360; this.videoHeight = m.h || 640; this.duration = m.seconds || videoSeconds;
+        this.loaded = true;
+        if (this.onloadedmetadata) this.onloadedmetadata();
+        if (this.autoplay || this.wantPlay) this.begin();
       }, 1);
     }
     get src() { return this.url; }
-    get currentTime() { return (now - this.started) / 1000; }
-    play() {} pause() {} load() {}
+    get currentTime() { return this.playing ? (now - this.started) / 1000 : 0; }
+    // التشغيل يبدأ بعد التحميل عند autoplay أو استدعاء play()، ثم ينتهي الفيديو أو يتكرر حسب loop
+    begin() {
+      if (this.playing || this.dead) return;
+      this.playing = true; this.started = now;
+      if (this.onplaying) this.onplaying();
+      const loopOrEnd = () => setTimeout(() => {
+        if (this.dead) return;
+        if (this.loop) { this.started = now; this.loops = (this.loops || 0) + 1; loopOrEnd(); } else if (this.onended) this.onended();
+      }, this.duration * 1000);
+      loopOrEnd();
+    }
+    play() { this.wantPlay = true; if (this.loaded) this.begin(); }
+    pause() {} load() {}
   }
   const stage = new El('div'); stage.id = 'stage';
   const overlay = new El('div'); overlay.id = 'overlay';
@@ -113,6 +131,8 @@ function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing
     XMLHttpRequest: Xhr,
     Image: class extends El { constructor() { super('img'); } },
     SIGNAGE_CONFIG: CONFIG,
+    SignageLayout: Layout,
+    innerWidth: width, innerHeight: height,
     navigator: {},
     location: { search, pathname: '/BESTWAYAPP/player.html', protocol: 'https:', reload() { h.reloads++; }, replace(u) { h.replaced = u; } },
     localStorage: { getItem: (k) => (ls.has(k) ? ls.get(k) : null), setItem: (k, v) => ls.set(k, String(v)) },
@@ -126,8 +146,12 @@ function boot({ search = `?d=${DEVICE}`, stored = {}, videoSeconds = 30, failing
   function shown() {
     const layer = stage.children.filter((l) => l.className.includes('show')).pop();
     if (!layer) return overlay.className === 'on' ? `overlay:${(overlay.querySelector('#code') || overlay.querySelector('h1') || {}).textContent}` : null;
-    const media = layer.children[0];
-    return media ? `${media.tag}:${media.url.replace(MEDIA, '')}` : `text:${layer.textContent}`;
+    if (layer.className.includes('group')) { // المجموعة توصف بشبكتها: صفوف × أعمدة
+      const count = (key) => new Set(layer.children.map((cell) => cell.style[key])).size;
+      return `group:${count('top')}x${count('right')}`;
+    }
+    const el = layer.children[0];
+    return el ? `${el.tag}:${el.url.replace(MEDIA, '')}` : `text:${layer.textContent}`;
   }
   // يسجّل تسلسل ما عُرض خلال مدة
   function watch(ms, step = 250) {
@@ -147,6 +171,7 @@ const item = (id, type, extra) => Object.assign({ id, type, file: null, url: nul
 const text = (id, body, duration = 10) => item(id, 'text', { text: body, duration });
 const image = (id, file, duration = 10) => item(id, 'image', { file, duration });
 const video = (id, file) => item(id, 'video', { file });
+const group = (id, parts, extra) => item(id, 'group', Object.assign({ parts: parts.map((file) => ({ file, kind: /\.mp4$/.test(file) ? 'video' : 'image' })) }, extra));
 const playlist = (items, name = 'كاشير 1') => ({ paired: true, name, version: `v${++stamp}`, items, now: '2026-11-11T12:00:00' });
 
 test('الاستعلام: دالة sg_player_poll بالمفتاح في apikey فقط ومعرّف الجهاز', () => {
@@ -156,7 +181,7 @@ test('الاستعلام: دالة sg_player_poll بالمفتاح في apikey �
   const [req] = p.polls();
   assert.equal(req.url, 'https://proj.supabase.co/rest/v1/rpc/sg_player_poll');
   assert.deepEqual(req.headers, { apikey: CONFIG.key, 'Content-Type': 'application/json' });
-  assert.deepEqual(req.body, { p_device_id: DEVICE, p_hb: true });
+  assert.deepEqual(req.body, { p_device_id: DEVICE, p_hb: true, p_w: 1920, p_h: 1080, p_version: null }, 'مقاس الشاشة وإصدار قائمتها مع الاستعلام');
   assert.equal(p.shown(), 'overlay:كاشير 1', 'قائمة فارغة: اسم الشاشة والساعة');
   p.advance(60_000);
   assert.equal(p.polls().length, 2, 'استعلام كل دقيقة');
@@ -337,4 +362,110 @@ test('تحديث الصفحة: إعادة تحميل لو تغيّر PLAYER_VERS
   newer.pageVersion = '99.0.0';
   newer.advance(2 * 3600_000);
   assert.equal(newer.reloads, 1);
+});
+
+test('رد مختصر: الشاشة ترسل إصدار قائمتها، و unchanged لا يقطع العرض', () => {
+  const p = boot();
+  const list = playlist([text(1, 'اول', 3600), text(2, 'تاني', 3600)]);
+  p.respond = (req) => (req.body.p_version === list.version ? { paired: true, unchanged: true, version: list.version } : list);
+  p.advance(100);
+  const layer = p.stage.children[0];
+  p.advance(180_000);
+  assert.deepEqual(p.polls().map((r) => r.body.p_version), [null, list.version, list.version, list.version]);
+  assert.equal(p.stage.children[0], layer, 'نفس الطبقة');
+  assert.equal(p.net.className, '');
+  // تغيّرت القائمة: يرجع الرد الكامل ويُطبَّق
+  const next = playlist([text(3, 'جديد')]);
+  p.respond = () => next;
+  p.advance(61_000);
+  assert.equal(p.shown(), 'text:جديد');
+  p.advance(60_000);
+  assert.equal(p.polls().pop().body.p_version, next.version);
+});
+
+test('قاعدة لم تأخذ تحديث 2: المشغّل يرجع للاستعلام القديم ويكمل', () => {
+  const p = boot();
+  p.respond = (req) => ('p_version' in req.body
+    ? [404, { code: 'PGRST202', message: 'Could not find the function public.sg_player_poll(p_device_id, p_h, p_hb, p_version, p_w) in the schema cache' }]
+    : playlist([text(1, 'اول')]));
+  p.advance(100);
+  assert.equal(p.shown(), 'text:اول');
+  assert.equal(p.net.className, '', 'ليس انقطاعًا');
+  p.advance(120_000);
+  const bodies = p.polls().map((r) => Object.keys(r.body).join(','));
+  assert.equal(bodies[0], 'p_device_id,p_hb,p_w,p_h,p_version');
+  assert.ok(bodies.slice(1).every((b) => b === 'p_device_id,p_hb'), 'بعد أول رفض: المعاملان القديمان فقط');
+  assert.equal(p.polls().length, 4, 'محاولة واحدة فاشلة ثم استعلام كل دقيقة');
+});
+
+test('مجموعة من 3 فيديوهات طولية على شاشة عرضية: صف من ثلاثة، وتنتقل عند انتهاء أطولها', () => {
+  const media = { [`${MEDIA}c/a.mp4`]: { seconds: 10 }, [`${MEDIA}c/b.mp4`]: { seconds: 14 }, [`${MEDIA}c/c.mp4`]: { seconds: 6 } };
+  const p = boot({ media });
+  p.respond = () => playlist([group(1, ['c/a.mp4', 'c/b.mp4', 'c/c.mp4'], { fit: 'cover' }), text(2, 'تاني', 5)]);
+  p.advance(100);
+  assert.equal(p.shown(), 'group:1x3');
+  const cells = p.stage.children[0].children;
+  assert.deepEqual(cells.map((c) => [Math.round(parseFloat(c.style.right)), Math.round(parseFloat(c.style.width)), c.style.height]), [[0, 33, '100%'], [33, 33, '100%'], [67, 33, '100%']]);
+  const videos = cells.map((c) => c.children[0]);
+  assert.deepEqual(videos.map((v) => v.url.replace(MEDIA, '')), ['c/a.mp4', 'c/b.mp4', 'c/c.mp4'], 'الأول على اليمين');
+  assert.ok(videos.every((v) => v.playing && v.muted && v.style.objectFit === 'cover'));
+  assert.deepEqual(videos.map((v) => v.loop), [true, false, true], 'الأطول لا يتكرر والباقي يتكرر حتى ينتهي');
+  p.advance(13_000);
+  assert.equal(p.shown(), 'group:1x3', 'ما زالت معروضة قبل انتهاء الأطول');
+  assert.equal(videos[2].loops, 2, 'القصير تكرر');
+  p.advance(2_000);
+  assert.equal(p.shown(), 'text:تاني');
+  p.advance(6_000);
+  assert.equal(p.shown(), 'group:1x3', 'رجعت في دورها');
+});
+
+test('المجموعة تختار شبكتها من مقاس الشاشة والملفات', () => {
+  const wide = (name) => ({ [`${MEDIA}c/${name}`]: { w: 1920, h: 1080 } });
+  const landscapeImages = Object.assign({}, wide('a.jpg'), wide('b.jpg'), wide('c.jpg'), wide('d.jpg'));
+  const tall = boot({ media: landscapeImages, width: 1080, height: 1920 });
+  tall.respond = () => playlist([group(1, ['c/a.jpg', 'c/b.jpg', 'c/c.jpg'])]);
+  tall.advance(100);
+  assert.equal(tall.shown(), 'group:3x1', 'ثلاث صور عرضية فوق بعض على شاشة طولية');
+  assert.equal(tall.polls()[0].body.p_w, 1080);
+
+  const four = boot({ media: landscapeImages });
+  four.respond = () => playlist([group(1, ['c/a.jpg', 'c/b.jpg', 'c/c.jpg', 'c/d.jpg'])]);
+  four.advance(100);
+  assert.equal(four.shown(), 'group:2x2', 'أربع صور عرضية: شبكة 2×2 على شاشة عرضية');
+
+  // صور فقط: تنتقل بعد مدتها
+  const timed = boot({ media: landscapeImages });
+  timed.respond = () => playlist([group(1, ['c/a.jpg', 'c/b.jpg'], { duration: 7 }), text(2, 'تاني', 5)]);
+  timed.advance(100);
+  assert.deepEqual(timed.watch(20_000).slice(0, 3), ['group:1x2', 'text:تاني', 'group:1x2']);
+});
+
+test('مجموعة وحدها تتكرر، ولما يُضاف محتوى تدخل في التبادل', () => {
+  const p = boot({ videoSeconds: 10 });
+  const g = group(1, ['c/a.mp4', 'c/b.mp4']);
+  p.respond = () => playlist([g]);
+  p.advance(100);
+  assert.deepEqual(p.watch(100_000), ['group:1x2']);
+  assert.ok(p.stage.children[0].children.every((c) => c.children[0].loop), 'وحدها: كل الفيديوهات تتكرر');
+  p.respond = () => playlist([g, text(2, 'تاني', 5)]);
+  const seen = p.watch(100_000);
+  assert.deepEqual(seen.slice(0, 4), ['group:1x2', 'text:تاني', 'group:1x2', 'text:تاني'], seen.join(' → '));
+  assert.ok(p.stage.children.length <= 2, 'لا طبقات متراكمة');
+});
+
+test('مجموعة فيها ملف لا يُحمَّل تُتخطى كلها، والنوع غير المعروف لا يوقف الشاشة', () => {
+  const p = boot({ failing: [`${MEDIA}c/missing.mp4`] });
+  p.respond = () => playlist([group(1, ['c/a.mp4', 'c/missing.mp4']), text(2, 'تاني', 5)]);
+  p.advance(100);
+  const seen = p.watch(30_000);
+  assert.ok(seen.includes('text:تاني') && !seen.some((s) => s.startsWith('group')), seen.join(' → '));
+  assert.equal(p.stage.children.filter((l) => l.className.includes('group')).length, 0, 'لا بقايا للمجموعة المعطوبة');
+
+  const future = boot();
+  future.respond = () => playlist([item(1, 'hologram')]);
+  future.advance(200_000); // لا تكرار لا نهائي ولا توقف للاستعلام
+  assert.ok(future.polls().length >= 3);
+  future.respond = () => playlist([text(2, 'تاني')]);
+  future.advance(61_000);
+  assert.equal(future.shown(), 'text:تاني');
 });

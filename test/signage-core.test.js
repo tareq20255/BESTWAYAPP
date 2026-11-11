@@ -76,9 +76,45 @@ test('playlistFor: الاستهداف بالفرع والمكان والشاشة
   assert.deepEqual(core.playlistFor(both, { id: 4, branch_id: 11, location_id: 21 }, now).map((c) => c.id), [9]);
 });
 
+test('اتجاه الشاشة: يدوي، ثم من مقاسها، ثم عرضي؛ والقاعدة تستهدف اتجاهًا', () => {
+  assert.equal(core.screenOrientation({ orientation: 'auto', view_w: 1080, view_h: 1920 }), 'portrait');
+  assert.equal(core.screenOrientation({ orientation: 'auto', view_w: 1920, view_h: 1080 }), 'landscape');
+  assert.equal(core.screenOrientation({ orientation: 'auto', view_w: null, view_h: null }), 'landscape', 'شاشة لم تتصل بعد');
+  assert.equal(core.screenOrientation({ orientation: 'auto', view_w: 1000, view_h: 1000 }), 'landscape', 'المربع يُعامل كعرضي كما في القاعدة');
+  assert.equal(core.screenOrientation({ orientation: 'portrait', view_w: 1920, view_h: 1080 }), 'portrait', 'التثبيت اليدوي يغلب');
+  assert.equal(core.screenOrientation({}), 'landscape');
+  assert.equal(core.screenAspect({ orientation: 'auto', view_w: 1280, view_h: 800 }), 1.6);
+  assert.equal(core.screenAspect({ orientation: 'auto' }), 16 / 9);
+  assert.equal(core.screenAspect({ orientation: 'portrait' }), 9 / 16);
+  assert.equal(core.screenAspect({ orientation: 'portrait', view_w: 1920, view_h: 1080 }), 9 / 16, 'مقاس يخالف التثبيت اليدوي لا يُستخدم');
+
+  const tall = { id: 1, branch_id: 1, location_id: 1, orientation: 'auto', view_w: 1080, view_h: 1920 };
+  const wide = { id: 2, branch_id: 1, location_id: 1, orientation: 'auto', view_w: 1920, view_h: 1080 };
+  const item = (id, orientation) => ({ id, sort: id, enabled: true, rules: [rule({ orientation })] });
+  const content = [item(1, 'portrait'), item(2, 'landscape'), item(3, null)];
+  const now = core.atParts(MON, '12:00');
+  assert.deepEqual(core.playlistFor(content, tall, now).map((c) => c.id), [1, 3]);
+  assert.deepEqual(core.playlistFor(content, wide, now).map((c) => c.id), [2, 3]);
+  assert.deepEqual(core.playlistFor(content, Object.assign({}, wide, { orientation: 'portrait' }), now).map((c) => c.id), [1, 3]);
+});
+
+test('mediaShape: اتجاه الملف وتنبيه المقاس الصغير', () => {
+  // المقاس معزول الاتجاه (LRI … PDI) حتى لا ينعكس الرقمان داخل النص العربي
+  const ltr = (text) => `\u2066${text}\u2069`;
+  assert.equal(core.dims(360, 640), ltr('360×640'));
+  assert.deepEqual(core.mediaShape(360, 640), { orientation: 'portrait', small: true, label: `طولي ${ltr('360×640')}` });
+  assert.deepEqual(core.mediaShape(1920, 1080), { orientation: 'landscape', small: false, label: `عرضي ${ltr('1920×1080')}` });
+  assert.deepEqual(core.mediaShape(1080, 1080), { orientation: 'square', small: false, label: `مربع ${ltr('1080×1080')}` });
+  assert.equal(core.mediaShape(1280, 720).small, false);
+  assert.equal(core.mediaShape(854, 480).small, true);
+});
+
 test('normalizeRules: تنظيف القيم ورفض ما لا يعمل', () => {
   const [r] = core.normalizeRules([{ branch_id: '3', location_id: '', screen_id: 0, days: ['5', 5, 1, 9], start_time: '22:00:00', end_time: '02:00:00', start_date: '', end_date: '2027-01-01' }]);
-  assert.deepEqual(r, { branch_id: 3, location_id: null, screen_id: null, days: [1, 5], start_time: '22:00', end_time: '02:00', start_date: null, end_date: '2027-01-01' });
+  assert.deepEqual(r, { branch_id: 3, location_id: null, screen_id: null, orientation: null, days: [1, 5], start_time: '22:00', end_time: '02:00', start_date: null, end_date: '2027-01-01' });
+  assert.equal(core.normalizeRule({ orientation: 'portrait' }).orientation, 'portrait');
+  assert.equal(core.normalizeRule({ orientation: 'diagonal' }).orientation, null);
+  assert.equal(core.normalizeRule({ orientation: '' }).orientation, null);
   assert.throws(() => core.normalizeRules([rule({ start_time: '10:00', end_time: '10:00' })]), /قاعدة 1.*متساويين/);
   assert.throws(() => core.normalizeRules([rule({}), rule({ start_date: '2027-02-01', end_date: '2027-01-01' })]), /قاعدة 2/);
   assert.deepEqual(core.normalizeRules(undefined), []);
@@ -108,6 +144,11 @@ test('fileInfo: النوع من الـ MIME أو الامتداد، والحجم
   assert.throws(() => core.fileInfo({ name: 'a.png', type: 'image/png', size: 10 }, 'video'), /مش فيديو/);
   assert.throws(() => core.fileInfo({ name: 'a.mp4', type: 'video/mp4', size: core.MAX_FILE_BYTES + 1 }, 'video'), /50 ميجا/);
   assert.throws(() => core.fileInfo(undefined, 'image'), /اختار الملف/);
+  // المجموعة تقبل الصور والفيديو معًا
+  assert.equal(core.fileInfo({ name: 'a.mp4', type: 'video/mp4', size: 10 }, 'group').kind, 'video');
+  assert.equal(core.fileInfo({ name: 'a.png', type: 'image/png', size: 10 }, 'group').kind, 'image');
+  assert.throws(() => core.fileInfo({ name: 'a.pdf', type: 'application/pdf', size: 10 }, 'group'), /مش مدعوم/);
+  assert.equal(core.contentRow('group', { title: 'مجموعة', duration: 8, fit: 'cover' }).type, 'group');
 });
 
 test('storagePath: مسار فريد مقبول في المخزن', () => {
@@ -134,6 +175,8 @@ test('حالة الاتصال ووصف القاعدة', () => {
     core.ruleSummary(rule({ branch_id: 1, location_id: 2, screen_id: 3, days: [5, 6], start_time: '22:00', end_time: '02:00' }), state),
     { where: 'المعادي · كاشير · شاشة: كاشير 1', when: 'السبت، الجمعة | 22:00–02:00' },
   );
+  assert.equal(core.ruleSummary(rule({ orientation: 'portrait' }), state).where, 'كل الفروع · كل الأماكن · الشاشات الطولية');
+  assert.equal(core.ruleSummary(rule({ orientation: 'landscape' }), state).where, 'كل الفروع · كل الأماكن · الشاشات العرضية');
 });
 
 test('errorText: رسائل مفهومة لأخطاء Supabase', () => {
@@ -144,6 +187,7 @@ test('errorText: رسائل مفهومة لأخطاء Supabase', () => {
   assert.equal(core.errorText({ code: 'P0001', message: 'الكود غير صحيح أو منتهي' }), 'الكود غير صحيح أو منتهي');
   assert.match(core.errorText({ code: 'invalid_credentials', status: 400 }), /كلمة السر غلط/);
   assert.match(core.errorText({ code: '42501', status: 403 }), /صلاحية/);
+  for (const code of ['42703', 'PGRST204', 'PGRST202']) assert.match(core.errorText({ code, status: 400 }), /signage_update_2\.sql/);
   assert.match(core.errorText({ status: 413, message: 'too large' }), /50 ميجا/);
   assert.match(core.errorText({ status: 400, code: 'invalid_mime_type', message: 'mime type image/heic is not supported' }), /مش مدعوم/);
   assert.equal(core.errorText({ status: 500, message: 'boom' }), 'حصل خطأ: boom');

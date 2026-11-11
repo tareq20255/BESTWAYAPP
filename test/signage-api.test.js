@@ -110,12 +110,15 @@ test('loadState: تحويل الصفوف لشكل الواجهة', async () => {
       sg_settings: [{ key: 'tz', value: 'Africa/Cairo' }],
       sg_branches: [{ id: 1, name: 'المعادي' }],
       sg_locations: [{ id: 2, name: 'كاشير' }],
-      sg_screens: [{ id: 3, device_id: 'dev', name: 'كاشير 1', branch_id: 1, location_id: 2, last_seen: '2026-11-11T10:00:00+00:00' }, { id: 4, device_id: 'dev2', name: 'جديدة', branch_id: null, location_id: null, last_seen: null }],
+      sg_screens: [{ id: 3, device_id: 'dev', name: 'كاشير 1', branch_id: 1, location_id: 2, orientation: 'auto', view_w: 1080, view_h: 1920, last_seen: '2026-11-11T10:00:00+00:00' }, { id: 4, device_id: 'dev2', name: 'جديدة', branch_id: null, location_id: null, orientation: 'portrait', view_w: null, view_h: null, last_seen: null }],
       sg_pending: [{ code: '123456', created_at: '2026-11-11T09:00:00+00:00' }],
       sg_content: [{
-        id: 5, title: 'عرض', type: 'text', file: null, text_body: 'أهلًا', url: null, bg: '#111111', fg: '#ffffff', fit: 'contain', duration: 8, sort: 1, enabled: true,
+        id: 5, title: 'عرض', type: 'text', file: null, parts: null, text_body: 'أهلًا', url: null, bg: '#111111', fg: '#ffffff', fit: 'contain', duration: 8, sort: 1, enabled: true,
         updated_at: '2026-11-11T08:00:00+00:00',
-        sg_rules: [{ id: 9, branch_id: 1, location_id: null, screen_id: null, days: [5], start_time: '22:00:00', end_time: '02:00:00', start_date: null, end_date: null }],
+        sg_rules: [{ id: 9, branch_id: 1, location_id: null, screen_id: null, orientation: 'portrait', days: [5], start_time: '22:00:00', end_time: '02:00:00', start_date: null, end_date: null }],
+      }, {
+        id: 6, title: 'مجموعة', type: 'group', file: null, parts: [{ file: 'c/a.mp4', kind: 'video' }, { file: 'c/b.jpg', kind: 'image' }], text_body: null, url: null,
+        bg: '#111111', fg: '#ffffff', fit: 'cover', duration: 10, sort: 2, enabled: true, updated_at: '2026-11-11T08:00:00+00:00', sg_rules: [],
       }],
     }[table]];
   }, { session: live() });
@@ -123,14 +126,17 @@ test('loadState: تحويل الصفوف لشكل الواجهة', async () => {
   assert.equal(calls.length, 6);
   assert.ok(calls.every((c) => c.method === 'GET' && c.headers.Authorization === 'Bearer AT'));
   assert.equal(s.tz, 'Africa/Cairo');
-  assert.deepEqual(s.screens[0], { id: 3, device_id: 'dev', name: 'كاشير 1', branch_id: 1, location_id: 2, last_seen: Date.UTC(2026, 10, 11, 10) });
+  assert.deepEqual(s.screens[0], { id: 3, device_id: 'dev', name: 'كاشير 1', branch_id: 1, location_id: 2, orientation: 'auto', view_w: 1080, view_h: 1920, last_seen: Date.UTC(2026, 10, 11, 10) });
   assert.equal(s.screens[1].last_seen, null);
+  assert.equal(s.screens[1].orientation, 'portrait');
   assert.deepEqual(s.pending.map((p) => p.code), ['123456']);
   assert.deepEqual(s.content[0], {
-    id: 5, title: 'عرض', type: 'text', file: null, text: 'أهلًا', url: '', bg: '#111111', fg: '#ffffff', fit: 'contain', duration: 8, sort: 1, enabled: true,
+    id: 5, title: 'عرض', type: 'text', file: null, parts: null, text: 'أهلًا', url: '', bg: '#111111', fg: '#ffffff', fit: 'contain', duration: 8, sort: 1, enabled: true,
     updated: Date.UTC(2026, 10, 11, 8),
-    rules: [{ id: 9, branch_id: 1, location_id: null, screen_id: null, days: [5], start_time: '22:00', end_time: '02:00', start_date: null, end_date: null }],
+    rules: [{ id: 9, branch_id: 1, location_id: null, screen_id: null, orientation: 'portrait', days: [5], start_time: '22:00', end_time: '02:00', start_date: null, end_date: null }],
   });
+  assert.deepEqual(s.content[1].parts, [{ file: 'c/a.mp4', kind: 'video' }, { file: 'c/b.jpg', kind: 'image' }]);
+  assert.match(calls.find((c) => c.path.includes('sg_screens')).path, /orientation,view_w,view_h/);
   const contentCall = calls.find((c) => c.path.includes('sg_content'));
   assert.match(contentCall.path, /sg_rules\(/);
   assert.match(contentCall.path, /order=sort\.asc,id\.asc/);
@@ -142,8 +148,9 @@ test('الشاشات والفروع: الطلبات المرسلة للقاعد�
   assert.equal(calls[0].path, '/rest/v1/rpc/sg_pair_screen');
   assert.deepEqual(calls[0].body, { p_code: '123456', p_name: 'كاشير 1', p_branch_id: 1, p_location_id: null });
   assert.equal(await client.createScreen({ name: 'صالة', branch_id: null, location_id: 2 }), 'abcdef0123456789abcdef0123456789');
-  await client.updateScreen(7, { name: 'ن', branch_id: 1, location_id: 2 });
+  await client.updateScreen(7, { name: 'ن', branch_id: 1, location_id: 2, orientation: 'portrait' });
   assert.deepEqual([calls[2].method, calls[2].path, calls[2].headers.Prefer], ['PATCH', '/rest/v1/sg_screens?id=eq.7', 'return=minimal']);
+  assert.deepEqual(calls[2].body, { name: 'ن', branch_id: 1, location_id: 2, orientation: 'portrait' });
   await client.deleteScreen(7);
   assert.deepEqual([calls[3].method, calls[3].path], ['DELETE', '/rest/v1/sg_screens?id=eq.7']);
   await client.addNamed('locations', 'صالة');
@@ -184,6 +191,8 @@ test('updateContent و setContentEnabled و deleteContent', async () => {
   assert.deepEqual([calls[4].method, calls[4].path, calls[4].body], ['DELETE', '/storage/v1/object/signage', { prefixes: ['c/20261111-abc.jpg'] }]);
   await client.deleteContent(6, null);
   assert.equal(calls.length, 6, 'محتوى بلا ملف: لا طلب للمخزن');
+  await client.deleteContent(7, ['c/a.mp4', 'c/b.mp4', 'c/c.jpg']);
+  assert.deepEqual(calls[7].body, { prefixes: ['c/a.mp4', 'c/b.mp4', 'c/c.jpg'] }, 'مجموعة: كل ملفاتها تُحذف في طلب واحد');
 });
 
 test('deleteContent: فشل حذف الملف لا يُفشل حذف المحتوى', async () => {

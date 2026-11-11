@@ -16,7 +16,7 @@ test('رقم الإصدار واحد في index.html و sw.js و CHANGELOG.md و
 
 test('sw.js: كل ملفات الكاش المسبق موجودة (ملف ناقص يُفشل تثبيت الـ Service Worker كله)', () => {
   const list = /const A=\[([^\]]+)\]/.exec(read('sw.js'))[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
-  for (const file of ['screens.html', 'player.html', 'src/signage-config.js', 'src/signage-core.js', 'src/signage-api.js']) {
+  for (const file of ['screens.html', 'player.html', 'src/signage-config.js', 'src/signage-core.js', 'src/signage-api.js', 'src/signage-layout.js']) {
     assert.ok(list.includes(file), `${file} في قائمة الكاش`);
   }
   for (const file of list) {
@@ -48,13 +48,17 @@ test('الصفحتان تحمّلان ملفات موجودة', () => {
   }
   assert.deepEqual(
     [...read('screens.html').matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]),
-    ['src/signage-config.js', 'src/signage-core.js', 'src/signage-api.js'],
+    ['src/signage-config.js', 'src/signage-core.js', 'src/signage-layout.js', 'src/signage-api.js'],
+  );
+  assert.deepEqual(
+    [...read('player.html').matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]),
+    ['src/signage-config.js', 'src/signage-layout.js'],
   );
 });
 
 test('المشغّل والإعدادات بصياغة ES5 (متصفحات الشاشات قديمة)', () => {
   const inline = /<script>([\s\S]*?)<\/script>/.exec(read('player.html'))[1];
-  for (const [name, code] of [['player.html', inline], ['src/signage-config.js', read('src/signage-config.js')]]) {
+  for (const [name, code] of [['player.html', inline], ['src/signage-config.js', read('src/signage-config.js')], ['src/signage-layout.js', read('src/signage-layout.js')]]) {
     assert.doesNotMatch(code, /=>/, `${name}: دالة سهمية`);
     assert.doesNotMatch(code, /`/, `${name}: قالب نصي`);
     assert.doesNotMatch(code, /\b(const|let|class|async|await)\s/, `${name}: صياغة ES6`);
@@ -74,11 +78,15 @@ test('الإعدادات: مفتاح publishable فقط ولا أسرار في �
 });
 
 test('الجداول والدوال التي تستخدمها الصفحات معرّفة في ملف القاعدة', () => {
-  const sql = read('supabase/signage_setup.sql');
+  const sql = read('supabase/signage_setup.sql') + read('supabase/signage_update_2.sql');
   const used = new Set();
   for (const file of ['src/signage-api.js', 'player.html']) {
     for (const m of read(file).matchAll(/\b(sg_[a-z_]+)\b/g)) used.add(m[1]);
   }
   assert.ok(used.has('sg_player_poll') && used.has('sg_replace_rules'));
-  for (const name of used) assert.ok(sql.includes(`public.${name}`), `${name} معرّف في supabase/signage_setup.sql`);
+  for (const name of used) assert.ok(sql.includes(`public.${name}`), `${name} معرّف في ملفات supabase/`);
+  // الأعمدة التي تطلبها لوحة التحكم موجودة في ملف التحديث
+  const update = read('supabase/signage_update_2.sql');
+  for (const column of ['view_w', 'view_h', 'orientation', 'parts']) assert.match(update, new RegExp(`add column ${column} `), column);
+  assert.match(update, /p_w integer default null, p_h integer default null, p_version text default null/, 'المعاملات الجديدة اختيارية للشاشات القديمة');
 });

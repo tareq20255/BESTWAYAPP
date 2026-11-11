@@ -8,8 +8,9 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const SESSION_KEY = 'bw-signage:session';
   const TABLES = { branches: 'sg_branches', locations: 'sg_locations' };
-  const CONTENT_SELECT = 'id,title,type,file,text_body,url,bg,fg,fit,duration,sort,enabled,updated_at,'
-    + 'sg_rules(id,branch_id,location_id,screen_id,days,start_time,end_time,start_date,end_date)';
+  const CONTENT_SELECT = 'id,title,type,file,parts,text_body,url,bg,fg,fit,duration,sort,enabled,updated_at,'
+    + 'sg_rules(id,branch_id,location_id,screen_id,orientation,days,start_time,end_time,start_date,end_date)';
+  const SCREEN_SELECT = 'id,device_id,name,branch_id,location_id,orientation,view_w,view_h,last_seen';
 
   class ApiError extends Error {
     constructor(message, info) {
@@ -158,18 +159,19 @@
 
     // ---------- القراءة ----------
     const mapScreen = (s) => ({
-      id: s.id, device_id: s.device_id, name: s.name, branch_id: s.branch_id, location_id: s.location_id, last_seen: toMs(s.last_seen),
+      id: s.id, device_id: s.device_id, name: s.name, branch_id: s.branch_id, location_id: s.location_id,
+      orientation: s.orientation || 'auto', view_w: s.view_w || null, view_h: s.view_h || null, last_seen: toMs(s.last_seen),
     });
     const mapRule = (r) => ({
-      id: r.id, branch_id: r.branch_id, location_id: r.location_id, screen_id: r.screen_id, days: r.days || [],
+      id: r.id, branch_id: r.branch_id, location_id: r.location_id, screen_id: r.screen_id, orientation: r.orientation || null, days: r.days || [],
       start_time: hhmm(r.start_time), end_time: hhmm(r.end_time), start_date: r.start_date || null, end_date: r.end_date || null,
     });
     const mapContent = (c) => ({
-      id: c.id, title: c.title, type: c.type, file: c.file || null, text: c.text_body || '', url: c.url || '',
+      id: c.id, title: c.title, type: c.type, file: c.file || null, parts: c.parts || null, text: c.text_body || '', url: c.url || '',
       bg: c.bg, fg: c.fg, fit: c.fit, duration: c.duration, sort: c.sort, enabled: c.enabled, updated: toMs(c.updated_at),
       rules: (c.sg_rules || []).map(mapRule),
     });
-    const getScreens = () => rest('GET', 'sg_screens?select=id,device_id,name,branch_id,location_id,last_seen&order=id.asc');
+    const getScreens = () => rest('GET', `sg_screens?select=${SCREEN_SELECT}&order=id.asc`);
     const getPending = () => rest('GET', 'sg_pending?select=code,created_at&order=created_at.desc');
 
     async function loadState() {
@@ -202,7 +204,7 @@
     // شاشة برابط خاص بدل الكود: ترجع معرّف الجهاز الذي يوضع في الرابط
     const createScreen = (s) => rpc('sg_create_screen', { p_name: s.name, p_branch_id: s.branch_id, p_location_id: s.location_id });
     const updateScreen = (id, s) => rest('PATCH', byId('sg_screens', id), {
-      body: { name: s.name, branch_id: s.branch_id, location_id: s.location_id }, headers: minimal,
+      body: { name: s.name, branch_id: s.branch_id, location_id: s.location_id, orientation: s.orientation || 'auto' }, headers: minimal,
     });
     const deleteScreen = (id) => rest('DELETE', byId('sg_screens', id), { headers: minimal });
     const clearPending = () => rest('DELETE', 'sg_pending?code=not.is.null', { headers: minimal });
@@ -226,9 +228,11 @@
       await replaceRules(id, rules);
     }
     const setContentEnabled = (id, enabled) => rest('PATCH', byId('sg_content', id), { body: { enabled: !!enabled }, headers: minimal });
-    async function deleteContent(id, file) {
+    // files: مسار واحد، أو مسارات ملفات المجموعة
+    async function deleteContent(id, files) {
       await rest('DELETE', byId('sg_content', id), { headers: minimal });
-      if (file) await removeFiles([file]).catch(() => {}); // الصف اتحذف؛ ملف يتيم لا يضر العرض
+      const list = [].concat(files || []).filter(Boolean);
+      if (list.length) await removeFiles(list).catch(() => {}); // الصف اتحذف؛ ملف يتيم لا يضر العرض
     }
 
     // ---------- الملفات ----------
