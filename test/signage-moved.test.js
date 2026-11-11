@@ -28,11 +28,13 @@ test('screens.html القديم يحوّل لـ CONNSCREEN', () => {
   assert.ok(read('screens.html').includes(`location.replace('${NEW}')`));
 });
 
-test('التطبيق يفتح CONNSCREEN من تبويب الشاشات ورابط الترويسة', () => {
+test('التطبيق للواتساب فقط: لا تبويب «الشاشات» ولا رابط لها، والشريط السفلي 4 تبويبات', () => {
   const html = read('index.html');
-  assert.ok(html.includes(`if("screens"===e)return void(location.href="${NEW}");`));
-  assert.ok(html.includes(`("a",{href:"${NEW}"`));
-  assert.ok(!html.includes('"screens.html"'));
+  assert.match(html, /grid grid-cols-4 border-t[^"]*lg:hidden",children:\[\["panel","استيراد",ul\],\["table","الجدول",ui\],\["preview","معاينة",un\],\["order","أوردر",ua\]\]\.map\(/);
+  assert.match(html, /\.grid-cols-4\{grid-template-columns:repeat\(4,/, 'تنسيق الأعمدة الأربعة موجود في الـ CSS');
+  for (const gone of ['الشاشات', '"screens"', 'screens.html', 'CONNSCREEN', 'repeat(5,minmax']) {
+    assert.ok(!html.includes(gone), `index.html ما زال فيه: ${gone}`);
+  }
   assert.equal(JSON.parse(read('manifest.webmanifest')).shortcuts, undefined);
 });
 
