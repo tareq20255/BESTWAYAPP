@@ -41,7 +41,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 // يسأل القاعدة كل دقيقة عن قائمة العرض (الدالة sg_player_poll)، ويكمل على آخر قائمة لو انقطع الإنترنت.
 (function () {
   'use strict';
-  var PLAYER_VERSION = '1.18.0'; // يُرفع مع كل إصدار: الشاشات تعيد تحميل الصفحة لما تلاقي رقم مختلف على السيرفر
+  var PLAYER_VERSION = '1.18.1'; // يُرفع مع كل إصدار: الشاشات تعيد تحميل الصفحة لما تلاقي رقم مختلف على السيرفر
   var CFG = window.SIGNAGE_CONFIG;
   var POLL_MS = 60000;             // الشاشة المربوطة
   var PAIR_FAST_MS = 5000;         // في انتظار الربط: أول عشر دقائق
@@ -82,6 +82,8 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   var screenName = '';
   var cur = -1;
   var timer = null, guard = null, pollTimer = null, clockTimer = null;
+  var curAdvance = null;          // ينقل للعنصر التالي (خاص بالعنصر المعروض الآن)
+  var curVideo = null;            // عنصر الفيديو المعروض الآن، إن وُجد
   var fails = 0;
   var pairSince = 0;
   var lastUpdateCheck = Date.now();
@@ -117,7 +119,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   function stopPlayback() {
     clearTimers();
     layers().forEach(kill);
-    cur = -1;
+    cur = -1; curAdvance = null; curVideo = null;
   }
   function textSize(len) { return len > 220 ? '4.2vmin' : len > 120 ? '5.5vmin' : len > 60 ? '7vmin' : '10vmin'; }
 
@@ -134,6 +136,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
     layer.className = 'layer';
     var advanced = false;
     var advance = function () { if (advanced) return; advanced = true; next(); };
+    curAdvance = advance; curVideo = null;
     // عنصر لم يُحمَّل (ملف محذوف أو إنترنت مقطوع): نتخطاه بعد لحظة
     var failLayer = function () { kill(layer); clearTimers(); timer = setTimeout(advance, 2500); };
     var el;
@@ -147,6 +150,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
       el.src = item.url;
     } else if (item.type === 'video') {
       el = document.createElement('video');
+      curVideo = el;
       el.muted = true; el.defaultMuted = true; el.autoplay = true; el.preload = 'auto';
       el.setAttribute('playsinline', ''); el.setAttribute('muted', '');
       el.style.objectFit = item.fit === 'cover' ? 'cover' : 'contain';
@@ -187,15 +191,32 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   function sameItem(a, b) { return a && b && a.id === b.id && a.updated === b.updated; }
   function applyPlaylist(newItems) {
     var curItem = (cur >= 0 && items[cur]) ? items[cur] : null;
+    var wasSingle = items.length === 1;
     items = newItems || [];
     if (!items.length) { stopPlayback(); showEmpty(); return; }
     if (curItem) {
       for (var i = 0; i < items.length; i++) {
-        if (sameItem(items[i], curItem)) { cur = i; return; } // العنصر المعروض ما زال في القائمة: نكمل بلا قطع
+        if (sameItem(items[i], curItem)) {
+          cur = i; // العنصر المعروض ما زال في القائمة: نكمل بلا قطع
+          if (wasSingle && items.length > 1) resumeRotation(curItem);
+          return;
+        }
       }
     }
     stopPlayback();
     next();
+  }
+  // العنصر الوحيد في القائمة يُعرض بلا موعد انتقال (والفيديو يتكرر). لما تُضاف له عناصر
+  // نحدد موعد انتقاله الآن، وإلا بقيت الشاشة عليه حتى إعادة التحميل
+  function resumeRotation(item) {
+    clearTimers();
+    if (item.type === 'video' && curVideo) {
+      curVideo.loop = false; // يكمل دورته الحالية ثم ينتقل عند انتهائه
+      var left = isFinite(curVideo.duration) && curVideo.duration > 0 ? curVideo.duration - curVideo.currentTime : 600;
+      guard = setTimeout(curAdvance, (left + 15) * 1000);
+    } else {
+      timer = setTimeout(curAdvance, item.duration * 1000);
+    }
   }
   // صف القاعدة ← عنصر عرض: الملف يتحول لرابطه العام في المخزن
   function mediaUrl(file) {

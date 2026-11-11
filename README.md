@@ -14,7 +14,7 @@
 - `src/printsettings.js` — عرض الورق وعدد نقاط الطابعة (ضبط تلقائي وحفظ).
 - `src/storage.js` — سجل الطلبات المطبوعة وإعدادات قالب الإيصال.
 - `build.js` — يحقن ملفات `src/` داخل `index.html` بين علامات `/*@src اسم*/ … /*@end اسم*/`.
-- `test/` — اختبارات `node:test`.
+- `test/` — اختبارات `node:test`. منها `signage-player.test.js` الذي يشغّل سكربت `player.html` داخل متصفح وهمي صغير (DOM ومؤقتات وهمية) لاختبار منطق المشغّل.
 - `sw.js` و`manifest.webmanifest` — الـ Service Worker والـ PWA.
 - `screens.html` — لوحة تحكم شاشات العرض (تبويب «الشاشات»). صفحة مستقلة مقروءة، ليست ضمن الـ bundle.
 - `player.html` — المشغّل الذي يُفتح على شاشات أندرويد. مكتوب بصياغة ES5 ليعمل على WebView قديم.
