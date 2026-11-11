@@ -58,9 +58,10 @@ main{max-width:760px;margin:0 auto;padding:14px 14px 110px}
 .chip.t{background:#e2f0ea;color:#17533f}
 .chip.warn{background:#fef3c7;color:#92400e}
 .chip.code{background:#e2f0ea;color:#17533f;font-weight:700;letter-spacing:2px;cursor:pointer;border:0;font-size:15px}
-.thumb{width:64px;height:64px;border-radius:10px;background:#e3dfd5;flex:none;display:flex;
+.thumb{position:relative;width:64px;height:64px;border-radius:10px;background:#e3dfd5;flex:none;display:flex;
   align-items:center;justify-content:center;font-size:26px;overflow:hidden}
 .thumb img,.thumb video{width:100%;height:100%;object-fit:cover}
+.thumb .count{position:absolute;bottom:3px;inset-inline-end:3px;background:rgba(20,28,24,.78);color:#fff;font-size:11px;line-height:1.5;border-radius:6px;padding:0 5px}
 .empty{text-align:center;color:var(--mute);padding:26px 10px}
 .help ol{margin:8px 0 0;padding-inline-start:22px}
 .help li{margin:4px 0}
@@ -108,7 +109,11 @@ code.url{direction:ltr;unicode-bidi:plaintext;background:#efece4;padding:2px 6px
 .tv{position:relative;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;container-type:inline-size;
   box-shadow:0 0 0 6px #232b27,0 10px 26px rgba(20,28,24,.35);margin:12px 6px 16px}
 .lay{position:absolute;inset:0;opacity:0;transition:opacity .7s ease;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.tv.portrait{max-width:52%;margin-inline:auto}
 .lay img,.lay video{width:100%;height:100%;display:block}
+.lay.grp{display:block}
+.gcell{position:absolute;overflow:hidden;box-sizing:border-box;padding:1px;background:#000}
+#fileInfo div{margin-top:4px}
 .txt{font-size:clamp(16px,6cqw,60px);font-weight:700;text-align:center;padding:6cqw;white-space:pre-line;line-height:1.5}
 .clock{font-size:14cqw;font-weight:300;letter-spacing:.04em;direction:ltr;line-height:1.1}
 .plrow{display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:#fff}
@@ -122,10 +127,12 @@ code.url{direction:ltr;unicode-bidi:plaintext;background:#efece4;padding:2px 6px
 <div id="sheets"></div>
 <script src="src/signage-config.js"></script>
 <script src="src/signage-core.js"></script>
+<script src="src/signage-layout.js"></script>
 <script src="src/signage-api.js"></script>
 <script>
 'use strict';
 const Core = window.SignageCore;
+const Layout = window.SignageLayout;
 const client = window.SignageApi.createClient(window.SIGNAGE_CONFIG);
 const PLAYER_URL = new URL('player.html', location.href).href;
 const LIVE_REFRESH_MS = 20000;
@@ -133,7 +140,9 @@ const LIVE_REFRESH_MS = 20000;
 const $ = (s, el) => (el || document).querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DAYNAME = Object.fromEntries(Core.DAYS);
-const TYPES = { image: ['🖼️', 'صورة'], video: ['🎬', 'فيديو'], text: ['📝', 'نص'], url: ['🔗', 'رابط'] };
+const TYPES = { image: ['🖼️', 'صورة'], video: ['🎬', 'فيديو'], group: ['🧩', 'مجموعة'], text: ['📝', 'نص'], url: ['🔗', 'رابط'] };
+const HINT_FILE = `الحد 50 ميجا للملف. المقاس المناسب: عرضي ${Core.dims(1920, 1080)} أو طولي ${Core.dims(1080, 1920)}. للفيديو استخدم MP4 قصير ومضغوط.`;
+const HINT_GROUP = 'اختار من 2 لـ 4 ملفات مع بعض (صور أو فيديوهات). بيتعرضوا في نفس الوقت ويتوزعوا تلقائيًا حسب شكل الشاشة: 3 فيديوهات طولية بيملوا شاشة عرضية. لو فيها فيديو، بتتبدل لما أطول فيديو يخلص.';
 
 let S = null;          // حالة النظام: الفروع والأماكن والشاشات والأكواد المنتظرة والمحتوى
 let tab = 'screens';
@@ -164,6 +173,8 @@ function options(list, sel, allLabel) {
 const nameOf = (list, id) => { const x = list.find((i) => i.id === id); return x ? x.name : null; };
 const screenById = (id) => S.screens.find((s) => s.id === id);
 const linkFor = (deviceId) => `${PLAYER_URL}?d=${encodeURIComponent(deviceId)}`;
+const orientText = (s) => (Core.screenOrientation(s) === 'portrait' ? 'طولية' : 'عرضية') + (s.view_w ? ` ${Core.dims(s.view_w, s.view_h)}` : '');
+const filesOf = (c) => (c.type === 'group' ? c.parts.map((part) => part.file) : c.file);
 const nowCount = (screen) => Core.playlistFor(S.content, screen, Core.nowParts(Date.now(), S.tz)).length;
 async function refresh() { S = await client.loadState(); render(); }
 async function copy(text) {
@@ -248,7 +259,7 @@ function viewScreens() {
     <div class="card">
       <div class="row"><span class="dot ${Core.isOnline(s.last_seen, now) ? 'on' : ''}"></span>
         <div class="grow"><h3>${esc(s.name)}</h3>
-        <div class="sub">${esc(nameOf(S.branches, s.branch_id) || 'بدون فرع')} · ${esc(nameOf(S.locations, s.location_id) || 'بدون مكان')}</div>
+        <div class="sub">${esc(nameOf(S.branches, s.branch_id) || 'بدون فرع')} · ${esc(nameOf(S.locations, s.location_id) || 'بدون مكان')} · ${esc(orientText(s))}</div>
         <div class="sub">${esc(Core.agoText(s.last_seen, now))}</div>
         <div class="sub">▶ بتعرض دلوقتي: ${nowCount(s)} عنصر</div></div></div>
       <div class="row wrap" style="margin-top:10px">
@@ -262,9 +273,14 @@ function viewScreens() {
     <div class="sub" style="text-align:center;margin-top:8px">توقيت الجدولة: ${esc(S.tz)}</div>`;
 }
 
+function mediaThumb(kind, file) {
+  return kind === 'video'
+    ? `<video src="${esc(client.publicUrl(file))}#t=0.5" preload="metadata" muted playsinline></video>`
+    : `<img src="${esc(client.publicUrl(file))}" alt="" loading="lazy">`;
+}
 function thumbFor(c) {
-  if (c.type === 'image') return `<img src="${esc(client.publicUrl(c.file))}" alt="" loading="lazy">`;
-  if (c.type === 'video') return `<video src="${esc(client.publicUrl(c.file))}#t=0.5" preload="metadata" muted playsinline></video>`;
+  if (c.type === 'image' || c.type === 'video') return mediaThumb(c.type, c.file);
+  if (c.type === 'group') return `${mediaThumb(c.parts[0].kind, c.parts[0].file)}<span class="count" dir="ltr">×${c.parts.length}</span>`;
   if (c.type === 'text') return `<span style="background:${esc(c.bg)};color:${esc(c.fg)};width:100%;height:100%;display:flex;align-items:center;justify-content:center">Aa</span>`;
   return TYPES.url[0];
 }
@@ -278,7 +294,7 @@ function viewContent() {
       <div class="row">
         <div class="thumb">${thumbFor(c)}</div>
         <div class="grow"><h3>${esc(c.title)}</h3>
-          <div class="sub">${TYPES[c.type][1]}${c.type !== 'video' ? ` · ${c.duration} ثانية` : ''}${c.enabled ? '' : ' · متوقف'}</div></div>
+          <div class="sub">${TYPES[c.type][1]}${c.type === 'group' ? ` · ${c.parts.length} ملفات` : ''}${c.type !== 'video' && c.type !== 'group' ? ` · ${c.duration} ثانية` : ''}${c.enabled ? '' : ' · متوقف'}</div></div>
       </div>
       <div style="margin-top:8px">${rules}</div>
       <div class="row wrap" style="margin-top:10px">
@@ -376,6 +392,10 @@ function screenSheet(screen, code) {
       <div><label for="f-branch">الفرع</label><select id="f-branch" name="branch_id">${options(S.branches, screen && screen.branch_id, '— اختار —')}</select></div>
       <div><label for="f-loc">المكان</label><select id="f-loc" name="location_id">${options(S.locations, screen && screen.location_id, '— اختار —')}</select></div>
     </div>
+    ${isNew ? '' : `<label for="f-orient">اتجاه الشاشة</label><select id="f-orient" name="orientation">
+      ${[['auto', `تلقائي (حسب مقاس الشاشة${screen.view_w ? `: ${Core.dims(screen.view_w, screen.view_h)}` : ''})`], ['landscape', 'عرضية'], ['portrait', 'طولية']]
+        .map(([value, label]) => `<option value="${value}"${screen.orientation === value ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>
+      <div class="hint">الشاشة بتبعت مقاسها لوحدها. ثبّت الاتجاه يدويًا بس لو التلقائي طلع غلط.</div>`}
     ${!S.branches.length || !S.locations.length ? '<div class="hint">أضف الفروع والأماكن الأول من تبويب الإعداد.</div>' : ''}`,
     `<button type="button" class="btn" data-act="closesheet">إلغاء</button><button type="button" class="btn primary" id="saveS">حفظ</button>`);
   $('#saveS', bg).onclick = async () => {
@@ -385,7 +405,7 @@ function screenSheet(screen, code) {
     try {
       const data = { name: Core.cleanName(v('name'), 'اسم الشاشة'), branch_id: Number(v('branch_id')) || null, location_id: Number(v('location_id')) || null };
       let link = null;
-      if (!isNew) await client.updateScreen(screen.id, data);
+      if (!isNew) await client.updateScreen(screen.id, Object.assign(data, { orientation: v('orientation') }));
       else if (v('code').trim()) await client.pairScreen(v('code'), data);
       else link = linkFor(await client.createScreen(data));
       closeSheet(); await refresh(); toast('تم الحفظ');
@@ -395,6 +415,27 @@ function screenSheet(screen, code) {
 }
 
 // ----- محتوى جديد / تعديل -----
+// مقاس الصورة أو الفيديو قبل الرفع، لتنبيه المستخدم لاتجاهه وجودته
+function probe(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    let finished = false;
+    const done = (w, h) => { if (finished) return; finished = true; URL.revokeObjectURL(url); resolve(w && h ? { w, h } : null); };
+    if (/^video\//.test(file.type) || /\.(mp4|webm)$/i.test(file.name)) {
+      const video = document.createElement('video');
+      video.preload = 'metadata'; video.muted = true;
+      video.onloadedmetadata = () => done(video.videoWidth, video.videoHeight);
+      video.onerror = () => done(0, 0);
+      video.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => done(img.naturalWidth, img.naturalHeight);
+      img.onerror = () => done(0, 0);
+      img.src = url;
+    }
+    setTimeout(() => done(0, 0), 8000);
+  });
+}
 // صور الكاميرا كبيرة بلا داعٍ لشاشة عرض: نصغّر JPEG إلى 1920 بكسل للضلع الأطول لتقليل استهلاك الإنترنت
 async function shrinkJpeg(file) {
   if (file.type !== 'image/jpeg' || file.size < 400 * 1024) return file;
@@ -429,7 +470,7 @@ function contentSheet(content) {
     </div>
     <label for="c-title">العنوان (للتنظيم بس)</label><input type="text" id="c-title" name="title" maxlength="80" value="${esc(content ? content.title : '')}" placeholder="مثال: عرض رمضان">
     <div id="f-file" ${isNew ? '' : 'hidden'}><label for="c-file">الملف</label><input type="file" id="c-file" name="file" accept="image/*,video/*">
-      <div class="hint">الحد 50 ميجا. للفيديو استخدم MP4 قصير ومضغوط عشان مايسحبش نت كتير على الشاشات.</div></div>
+      <div class="hint" id="fileHint"></div><div class="hint" id="fileInfo" aria-live="polite"></div></div>
     <div id="f-text"><label for="c-text">النص</label><textarea id="c-text" name="text" maxlength="2000">${esc(content ? content.text : '')}</textarea>
       <div class="grid2"><div><label for="c-bg">لون الخلفية</label><input type="color" id="c-bg" name="bg" value="${esc(content ? content.bg : '#111111')}"></div>
       <div><label for="c-fg">لون النص</label><input type="color" id="c-fg" name="fg" value="${esc(content ? content.fg : '#ffffff')}"></div></div></div>
@@ -448,15 +489,35 @@ function contentSheet(content) {
     `<button type="button" class="btn" data-act="closesheet">إلغاء</button><button type="button" class="btn primary" id="saveC">${isNew ? 'رفع وحفظ' : 'حفظ'}</button>`);
 
   const $$ = (s) => bg.querySelector(s);
-  const isMedia = () => type === 'image' || type === 'video';
+  const IMAGES = 'image/png,image/jpeg,image/webp,image/gif';
+  const VIDEOS = 'video/mp4,video/webm';
+  const isGroup = () => type === 'group';
+  const isMedia = () => type === 'image' || type === 'video' || isGroup();
+  let fitChosen = !isNew; // المجموعة تبدأ بوضع «تملأ الشاشة» ما لم يختر المستخدم غيره
   function applyType() {
+    const input = $$('[name=file]');
     $$('#f-file').hidden = !(isNew && isMedia());
     $$('#f-text').hidden = type !== 'text';
     $$('#f-url').hidden = type !== 'url';
     $$('#f-dur').hidden = type === 'video';
     $$('#f-fit').hidden = !isMedia();
-    $$('[name=file]').accept = type === 'video' ? 'video/mp4,video/webm' : 'image/png,image/jpeg,image/webp,image/gif';
+    input.multiple = isGroup();
+    input.accept = isGroup() ? `${IMAGES},${VIDEOS}` : type === 'video' ? VIDEOS : IMAGES;
+    input.value = ''; $$('#fileInfo').textContent = '';
+    $$('#fileHint').textContent = isGroup() ? HINT_GROUP : HINT_FILE;
+    $$('label[for=c-file]').textContent = isGroup() ? 'الملفات (من 2 لـ 4)' : 'الملف';
+    if (!fitChosen) $$('[name=fit]').value = isGroup() ? 'cover' : 'contain';
   }
+  $$('[name=fit]').addEventListener('change', () => { fitChosen = true; });
+  $$('[name=file]').addEventListener('change', async () => {
+    const files = [...$$('[name=file]').files];
+    const shapes = await Promise.all(files.map(probe));
+    $$('#fileInfo').innerHTML = files.map((file, i) => {
+      const shape = shapes[i] && Core.mediaShape(shapes[i].w, shapes[i].h);
+      return `<div>${files.length > 1 ? `ملف ${i + 1}: ` : ''}${shape ? esc(shape.label) : 'مقاس غير معروف'} · ${esc(Core.sizeText(file.size))}`
+        + `${shape && shape.small ? ' <span class="chip warn">مقاس صغير: هيبان ناعم على شاشة كبيرة</span>' : ''}</div>`;
+    }).join('');
+  });
   function renderRules() {
     $$('#rules').innerHTML = rules.map((r, i) => `
       <div class="rule" data-i="${i}">
@@ -465,7 +526,12 @@ function contentSheet(content) {
           <div><label for="r${i}-b">الفرع</label><select id="r${i}-b" data-f="branch_id">${options(S.branches, r.branch_id, 'كل الفروع')}</select></div>
           <div><label for="r${i}-l">المكان</label><select id="r${i}-l" data-f="location_id">${options(S.locations, r.location_id, 'كل الأماكن')}</select></div>
         </div>
-        <label for="r${i}-s">شاشة معينة (اختياري)</label><select id="r${i}-s" data-f="screen_id">${options(S.screens, r.screen_id, 'كل الشاشات')}</select>
+        <div class="grid2">
+          <div><label for="r${i}-s">شاشة معينة</label><select id="r${i}-s" data-f="screen_id">${options(S.screens, r.screen_id, 'كل الشاشات')}</select></div>
+          <div><label for="r${i}-o">اتجاه الشاشة</label><select id="r${i}-o" data-f="orientation"><option value="">الطولية والعرضية</option>
+            <option value="landscape"${r.orientation === 'landscape' ? ' selected' : ''}>العرضية بس</option>
+            <option value="portrait"${r.orientation === 'portrait' ? ' selected' : ''}>الطولية بس</option></select></div>
+        </div>
         <label>الأيام <span class="hint">(من غير اختيار = كل يوم)</span></label>
         <div class="days">${Core.DAYS.map(([d, n]) => `<button type="button" data-day="${d}" class="${r.days.includes(d) ? 'on' : ''}">${n}</button>`).join('')}</div>
         <div class="grid2"><div><label for="r${i}-st">من الساعة</label><input type="time" id="r${i}-st" data-f="start_time" value="${esc(r.start_time || '')}"></div>
@@ -503,7 +569,7 @@ function contentSheet(content) {
   $$('#saveC').onclick = async () => {
     const v = (n) => $$(`[name=${n}]`).value;
     const btn = $$('#saveC'); btn.disabled = true;
-    let uploaded = null;
+    const uploaded = [];
     try {
       const row = Core.contentRow(type, { title: v('title'), duration: v('duration'), fit: v('fit'), sort: v('sort'), text: v('text'), bg: v('bg'), fg: v('fg'), url: v('url') });
       const cleanRules = Core.normalizeRules(rules);
@@ -512,23 +578,30 @@ function contentSheet(content) {
         await client.updateContent(content.id, row, cleanRules);
       } else {
         if (isMedia()) {
-          const file = $$('[name=file]').files[0];
-          const info = Core.fileInfo(file, type);
-          bg.dataset.busy = '1'; $$('#prog').hidden = false; $$('#progTxt').textContent = 'جاري تجهيز الملف…';
-          const small = await shrinkJpeg(file);
-          if (small !== file) note = ` (الصورة اتصغّرت من ${Core.sizeText(file.size)} إلى ${Core.sizeText(small.size)})`;
-          const blob = small.type === info.mime ? small : small.slice(0, small.size, info.mime);
-          uploaded = await client.upload(Core.storagePath(info.ext, Date.now()), blob, (p) => {
-            const pct = Math.round(p * 100);
-            $$('#progBar').style.width = pct + '%'; $$('#progTxt').textContent = `جاري الرفع… ${pct}%`;
-          });
-          row.file = uploaded;
+          const files = [...$$('[name=file]').files];
+          if (isGroup() && (files.length < 2 || files.length > 4)) throw Core.inputError('اختار من 2 لـ 4 ملفات للمجموعة');
+          const chosen = isGroup() ? files : [files[0]];
+          const infos = chosen.map((file) => Core.fileInfo(file, type)); // كل الملفات تُفحص قبل رفع أي منها
+          bg.dataset.busy = '1'; $$('#prog').hidden = false;
+          for (let i = 0; i < chosen.length; i++) {
+            const label = chosen.length > 1 ? `ملف ${i + 1} من ${chosen.length}` : 'جاري الرفع';
+            $$('#progBar').style.width = '0'; $$('#progTxt').textContent = `${label}: تجهيز…`;
+            const small = await shrinkJpeg(chosen[i]);
+            if (small !== chosen[i] && chosen.length === 1) note = ` (الصورة اتصغّرت من ${Core.sizeText(chosen[i].size)} إلى ${Core.sizeText(small.size)})`;
+            const blob = small.type === infos[i].mime ? small : small.slice(0, small.size, infos[i].mime);
+            uploaded.push(await client.upload(Core.storagePath(infos[i].ext, Date.now()), blob, (p) => {
+              const pct = Math.round(p * 100);
+              $$('#progBar').style.width = pct + '%'; $$('#progTxt').textContent = `${label}… ${pct}%`;
+            }));
+          }
+          if (isGroup()) row.parts = uploaded.map((file, i) => ({ file, kind: infos[i].kind }));
+          else row.file = uploaded[0];
         }
         await client.createContent(row, cleanRules);
       }
       closeSheet(); await refresh(); toast('تم الحفظ' + note);
     } catch (e) {
-      if (uploaded) client.removeFiles([uploaded]).catch(() => {}); // الملف اترفع لكن الحفظ فشل
+      if (uploaded.length) client.removeFiles(uploaded).catch(() => {}); // ملفات اترفعت لكن الحفظ فشل
       btn.disabled = false; delete bg.dataset.busy; $$('#prog').hidden = true; $$('#progBar').style.width = '0';
       fail(e);
     }
@@ -537,10 +610,51 @@ function contentSheet(content) {
 
 // ----- معاينة شاشة -----
 // يشغّل العناصر بالتبادل داخل إطار التلفزيون، بنفس ترتيب ومدد الشاشة الحقيقية
+// طبقة المجموعة في المعاينة: نفس توزيع المشغّل (src/signage-layout.js)
+function buildGroup(layerEl, it, tv, rotating, onEnd) {
+  const n = it.parts.length;
+  const aspects = new Array(n).fill(0);
+  const els = [];
+  let pending = n;
+  const place = () => {
+    const grid = Layout.choose(aspects, tv.clientWidth || 16, tv.clientHeight || 9);
+    Layout.cells(n, grid.rows, grid.cols).forEach((pos, i) => {
+      Object.assign(els[i].parentNode.style, { right: `${pos.right}%`, top: `${pos.top}%`, width: `${pos.width}%`, height: `${pos.height}%` });
+    });
+  };
+  const ready = (i, w, h) => {
+    aspects[i] = w && h ? w / h : 0;
+    if (--pending > 0) return;
+    place();
+    const videos = els.filter((el) => el.tagName === 'VIDEO');
+    const longest = videos.reduce((a, b) => (!a || b.duration > a.duration ? b : a), null);
+    videos.forEach((video) => { video.loop = !rotating || video !== longest; video.play().catch(() => {}); });
+    if (longest && rotating) longest.onended = onEnd;
+  };
+  it.parts.forEach((part, i) => {
+    const cell = document.createElement('div'); cell.className = 'gcell';
+    const el = document.createElement(part.kind === 'video' ? 'video' : 'img');
+    el.style.objectFit = it.fit === 'cover' ? 'cover' : 'contain';
+    if (part.kind === 'video') {
+      el.muted = true; el.playsInline = true; el.preload = 'auto';
+      el.onloadedmetadata = () => ready(i, el.videoWidth, el.videoHeight);
+    } else {
+      el.alt = '';
+      el.onload = () => ready(i, el.naturalWidth, el.naturalHeight);
+    }
+    el.onerror = () => ready(i, 0, 0);
+    els.push(el); cell.appendChild(el); layerEl.appendChild(cell);
+    el.src = client.publicUrl(part.file);
+  });
+  place(); // توزيع مبدئي لحد ما المقاسات توصل
+}
+
 function makePlayer(tv, items, getSpeed, onStep, clockText) {
   let alive = true, timer = null, idx = -1, cur = null;
+  const skip = () => { clearTimeout(timer); show(); };
   function layer(it) {
     const d = document.createElement('div'); d.className = 'lay';
+    if (it.type === 'group') { d.className = 'lay grp'; d.style.background = '#000'; buildGroup(d, it, tv, items.length > 1, skip); return d; }
     if (it.type === 'image') { d.style.background = '#000'; d.innerHTML = `<img alt="" src="${esc(client.publicUrl(it.file))}" style="object-fit:${esc(it.fit)}">`; }
     else if (it.type === 'video') { d.style.background = '#000'; d.innerHTML = `<video muted playsinline autoplay ${items.length === 1 ? 'loop' : ''} src="${esc(client.publicUrl(it.file))}" style="object-fit:${esc(it.fit)}"></video>`; }
     else if (it.type === 'text') { d.style.background = it.bg; d.style.color = it.fg; d.innerHTML = `<div class="txt">${esc(it.text)}</div>`; }
@@ -566,6 +680,7 @@ function makePlayer(tv, items, getSpeed, onStep, clockText) {
     onStep(idx, it);
     if (items.length === 1) return;
     let ms = it.duration * 1000 / getSpeed();
+    if (it.type === 'group' && it.parts.some((part) => part.kind === 'video')) ms = 10 * 60 * 1000; // تنتقل عند انتهاء أطول فيديو
     if (it.type === 'video') {
       const video = el.querySelector('video');
       video.onended = () => { clearTimeout(timer); show(); };
@@ -584,8 +699,10 @@ function previewSheet(id) {
   if (!screen) return;
   const start = Core.nowParts(Date.now(), S.tz);
   let speed = 1;
+  const portrait = Core.screenOrientation(screen) === 'portrait';
   const bg = openSheet('معاينة: ' + screen.name, `
-    <div class="tv" id="tv"></div>
+    <div class="tv${portrait ? ' portrait' : ''}" id="tv" style="aspect-ratio:${Core.screenAspect(screen).toFixed(4)}"></div>
+    <div class="hint" style="text-align:center;margin-top:-8px">شاشة ${esc(orientText(screen))}</div>
     <div class="row sp" style="margin:0 4px 4px"><span class="sub grow" id="tvNow"></span><button class="btn sm" id="spd" type="button">⏩ سرعة ×1</button></div>
     <div class="card" style="margin-top:12px"><h3>جرّب أوقات تانية</h3>
       <div class="sub">شوف الشاشة دي هتعرض إيه في أي يوم وساعة.</div>
@@ -620,7 +737,7 @@ function previewSheet(id) {
     $$('#pl').innerHTML = items.length
       ? `<h3 style="margin:14px 4px 8px">قايمة العرض (${items.length})</h3>` + items.map((c, i) => `
         <div class="plrow" data-pl="${i}"><div class="thumb">${thumbFor(c)}</div>
-          <div class="grow"><b>${esc(c.title)}</b><div class="sub">${TYPES[c.type][1]}${c.type !== 'video' ? ` · ${c.duration} ثانية` : ''}</div></div></div>`).join('')
+          <div class="grow"><b>${esc(c.title)}</b><div class="sub">${TYPES[c.type][1]}${c.type === 'group' ? ` · ${c.parts.length} ملفات` : ''}${c.type !== 'video' && c.type !== 'group' ? ` · ${c.duration} ثانية` : ''}</div></div></div>`).join('')
       : '<div class="card empty" style="margin-top:14px">مفيش محتوى مجدول للشاشة دي في الوقت ده.<br>الشاشة بتعرض الساعة لحد ما يجي محتوى.</div>';
     player = makePlayer($$('#tv'), items, () => speed, (i, it) => {
       $$('#tvNow').textContent = it ? `بيعرض: ${it.title} (${i + 1} من ${items.length})` : 'الشاشة فاضية';
@@ -666,7 +783,7 @@ document.addEventListener('click', async (e) => {
       }
       case 'delcontent': {
         const c = S.content.find((x) => x.id === id);
-        if (await askConfirm('تحذف المحتوى ده نهائيًا؟', 'حذف')) { await client.deleteContent(id, c.file); await refresh(); toast('اتحذف'); }
+        if (await askConfirm('تحذف المحتوى ده نهائيًا؟', 'حذف')) { await client.deleteContent(id, filesOf(c)); await refresh(); toast('اتحذف'); }
         break;
       }
       case 'ren': {

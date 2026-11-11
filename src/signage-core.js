@@ -8,7 +8,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   // ترتيب العرض يبدأ بالسبت. الرقم هو يوم الأسبوع (0 = الأحد … 6 = السبت) كما في القاعدة
   const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الإثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
-  const TYPES = ['image', 'video', 'text', 'url'];
+  const TYPES = ['image', 'video', 'text', 'url', 'group'];
+  const SMALL_MEDIA_PX = 1000; // أقل من ذلك للضلع الأطول يظهر ناعمًا على شاشة كبيرة
   const MAX_FILE_BYTES = 50 * 1024 * 1024; // نفس حد المخزن signage
   const MIME_BY_EXT = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif',
@@ -46,11 +47,24 @@
   const hhmm = (t) => (t ? String(t).slice(0, 5) : null);
 
   // ---------- الاستهداف والجدولة ----------
+  // اتجاه الشاشة الفعلي: المثبّت يدويًا، وإلا من المقاس الذي أرسلته الشاشة، وإلا عرضي
+  // (نسخة من sg_private.screen_orientation في القاعدة)
+  function screenOrientation(screen) {
+    if (screen.orientation === 'landscape' || screen.orientation === 'portrait') return screen.orientation;
+    return screen.view_w && screen.view_h && screen.view_h > screen.view_w ? 'portrait' : 'landscape';
+  }
+  // نسبة العرض إلى الارتفاع لإطار المعاينة
+  function screenAspect(screen) {
+    const portrait = screenOrientation(screen) === 'portrait';
+    if (screen.view_w && screen.view_h && (screen.view_h > screen.view_w) === portrait) return screen.view_w / screen.view_h;
+    return portrait ? 9 / 16 : 16 / 9;
+  }
   // حقل فارغ في القاعدة معناه «الكل»
   function ruleMatchesScreen(rule, screen) {
     return (rule.branch_id == null || rule.branch_id === screen.branch_id)
       && (rule.location_id == null || rule.location_id === screen.location_id)
-      && (rule.screen_id == null || rule.screen_id === screen.id);
+      && (rule.screen_id == null || rule.screen_id === screen.id)
+      && (rule.orientation == null || rule.orientation === screenOrientation(screen));
   }
   function ruleActiveNow(rule, now) {
     let day = now.day;
@@ -89,7 +103,7 @@
 
   // ---------- المدخلات ----------
   const emptyRule = () => ({
-    branch_id: null, location_id: null, screen_id: null, days: [],
+    branch_id: null, location_id: null, screen_id: null, orientation: null, days: [],
     start_time: null, end_time: null, start_date: null, end_date: null,
   });
   const idOrNull = (v) => (v === null || v === undefined || v === '' || Number(v) === 0 ? null : Number(v));
@@ -97,6 +111,7 @@
     const days = [...new Set((r.days || []).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     return {
       branch_id: idOrNull(r.branch_id), location_id: idOrNull(r.location_id), screen_id: idOrNull(r.screen_id),
+      orientation: r.orientation === 'landscape' || r.orientation === 'portrait' ? r.orientation : null,
       days,
       start_time: hhmm(r.start_time), end_time: hhmm(r.end_time),
       start_date: r.start_date || null, end_date: r.end_date || null,
@@ -158,7 +173,7 @@
     const mime = known.includes(file.type) ? file.type : MIME_BY_EXT[String(ext || '').toLowerCase()];
     if (!mime) throw inputError('نوع الملف مش مدعوم. الصور: JPG أو PNG أو WebP أو GIF. الفيديو: MP4 أو WebM.');
     const kind = mime.split('/')[0];
-    if (type && kind !== type) throw inputError(type === 'image' ? 'الملف ده مش صورة' : 'الملف ده مش فيديو');
+    if (type && type !== 'group' && kind !== type) throw inputError(type === 'image' ? 'الملف ده مش صورة' : 'الملف ده مش فيديو');
     if (file.size > MAX_FILE_BYTES) throw inputError('الملف أكبر من 50 ميجا. اضغط الفيديو أو قصّره وجرّب تاني.');
     const outExt = Object.keys(MIME_BY_EXT).find((k) => MIME_BY_EXT[k] === mime);
     return { kind, mime, ext: outExt };
@@ -168,6 +183,14 @@
     const stamp = new Date(nowMs).toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
     const tail = Math.floor((random === undefined ? Math.random() : random) * 0xffffffff).toString(36).padStart(7, '0');
     return `c/${stamp}-${tail}.${ext}`;
+  }
+  // «العرض×الارتفاع» كوحدة من اليسار لليمين داخل نص عربي؛ بدون العزل يظهر الرقمان معكوسين (640×360 بدل 360×640)
+  const dims = (width, height) => `\u2066${width}×${height}\u2069`;
+  // وصف مقاس ملف للمستخدم: اتجاهه، وهل هو صغير على شاشة عرض
+  function mediaShape(width, height) {
+    const orientation = width === height ? 'square' : (height > width ? 'portrait' : 'landscape');
+    const name = { portrait: 'طولي', landscape: 'عرضي', square: 'مربع' }[orientation];
+    return { orientation, small: Math.max(width, height) < SMALL_MEDIA_PX, label: `${name} ${dims(width, height)}` };
   }
   function sizeText(bytes) {
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} م.ب`;
@@ -189,6 +212,7 @@
     const nameOf = (list, id) => (list.find((x) => x.id === id) || {}).name;
     const where = [nameOf(state.branches, rule.branch_id) || 'كل الفروع', nameOf(state.locations, rule.location_id) || 'كل الأماكن'];
     if (rule.screen_id) where.push(`شاشة: ${nameOf(state.screens, rule.screen_id) || '؟'}`);
+    if (rule.orientation) where.push(rule.orientation === 'portrait' ? 'الشاشات الطولية' : 'الشاشات العرضية');
     const when = [];
     if (rule.days.length && rule.days.length < 7) when.push(DAYS.filter(([d]) => rule.days.includes(d)).map(([, n]) => n).join('، '));
     if (rule.start_time || rule.end_time) when.push(`${rule.start_time || '00:00'}–${rule.end_time || '24:00'}`);
@@ -208,6 +232,9 @@
       case '23514': case '22001': case '22P02': case '22007': case '22008':
         return 'في قيمة مش مقبولة. راجع البيانات وجرّب تاني.';
       case '42501': return 'الحساب ده مالوش صلاحية على الشاشات';
+      // عمود أو دالة غير موجودة: الصفحة أحدث من القاعدة
+      case '42703': case 'PGRST204': case 'PGRST202':
+        return 'القاعدة محتاجة تحديث: شغّل ملف signage_update_2.sql من Supabase وجرّب تاني.';
       case 'P0001': return e.message; // رسالة مكتوبة في دوال القاعدة، مثل «الكود غير صحيح أو منتهي»
       case 'invalid_credentials': case 'invalid_grant': return 'الإيميل أو كلمة السر غلط';
       case 'email_not_confirmed': return 'الإيميل ده لسه متأكدش من Supabase';
@@ -224,9 +251,9 @@
   return {
     DAYS, TYPES, MAX_FILE_BYTES, ONLINE_MS,
     inputError, nowParts, atParts, prevDate, hhmm,
-    ruleMatchesScreen, ruleActiveNow, playlistFor,
+    screenOrientation, screenAspect, ruleMatchesScreen, ruleActiveNow, playlistFor,
     emptyRule, normalizeRule, normalizeRules, cleanName, contentRow,
-    fileInfo, storagePath, sizeText,
+    fileInfo, storagePath, dims, mediaShape, sizeText,
     isOnline, agoText, ruleSummary, errorText,
   };
 });

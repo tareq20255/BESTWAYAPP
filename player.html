@@ -18,6 +18,8 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 .layer.show{opacity:1}
 .layer img,.layer video{width:100%;height:100%;object-fit:contain;display:block}
 .layer iframe{border:0;width:100%;height:100%;background:#fff}
+.layer.group{display:block}
+.cell{position:absolute;overflow:hidden;box-sizing:border-box;padding:.35vmin;background:#000}
 .layer.text{padding:6vmin;text-align:center;font-weight:700;line-height:1.35;white-space:pre-wrap;word-wrap:break-word;box-sizing:border-box}
 #overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:5;display:none;-webkit-flex-direction:column;flex-direction:column;
   -webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;text-align:center;
@@ -36,13 +38,15 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 <div id="overlay"></div>
 <div id="net" title="مفيش اتصال بالإنترنت"></div>
 <script src="src/signage-config.js"></script>
+<script src="src/signage-layout.js"></script>
 <script>
 // مشغّل شاشة العرض. مكتوب بصياغة ES5 و XMLHttpRequest ليعمل على WebView قديم.
 // يسأل القاعدة كل دقيقة عن قائمة العرض (الدالة sg_player_poll)، ويكمل على آخر قائمة لو انقطع الإنترنت.
 (function () {
   'use strict';
-  var PLAYER_VERSION = '1.18.1'; // يُرفع مع كل إصدار: الشاشات تعيد تحميل الصفحة لما تلاقي رقم مختلف على السيرفر
+  var PLAYER_VERSION = '1.19.0'; // يُرفع مع كل إصدار: الشاشات تعيد تحميل الصفحة لما تلاقي رقم مختلف على السيرفر
   var CFG = window.SIGNAGE_CONFIG;
+  var Layout = window.SignageLayout;
   var POLL_MS = 60000;             // الشاشة المربوطة
   var PAIR_FAST_MS = 5000;         // في انتظار الربط: أول عشر دقائق
   var PAIR_SLOW_MS = 30000;        // بعدها
@@ -87,6 +91,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   var fails = 0;
   var pairSince = 0;
   var lastUpdateCheck = Date.now();
+  var legacyPoll = false;         // القاعدة لم تأخذ تحديث 2 بعد: استعلام بالمعاملين القديمين فقط
 
   if (param('reset') === '1') {
     lsSet(K_DEVICE, ''); lsSet(K_PLAYLIST, '');
@@ -97,8 +102,8 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   // ---------- العرض ----------
   function kill(layer) {
     try {
-      var v = layer.querySelector('video');
-      if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+      var vs = layer.querySelectorAll('video'), k;
+      for (k = 0; k < vs.length; k++) { vs[k].pause(); vs[k].removeAttribute('src'); vs[k].load(); }
       var f = layer.querySelector('iframe');
       if (f) f.src = 'about:blank';
     } catch (e) { /* تجاهل */ }
@@ -185,7 +190,79 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
       el.src = item.url;
       guard = setTimeout(function () { reveal(layer); }, 4000);
       if (!single) timer = setTimeout(advance, item.duration * 1000);
-    } else { advance(); }
+    } else if (item.type === 'group') {
+      showGroup(item, layer, single, advance, failLayer);
+    } else {
+      timer = setTimeout(advance, 2500); // نوع لا تعرفه هذه النسخة من الصفحة: نتخطاه
+    }
+  }
+
+  // مجموعة: من 2 إلى 4 صور أو فيديوهات تُعرض معًا. تُحمَّل كلها أولًا لمعرفة نسبها،
+  // ثم تُوزَّع على أفضل شبكة للشاشة وتبدأ معًا. الانتقال للعنصر التالي عند انتهاء أطول فيديو (والباقي يتكرر)
+  function showGroup(item, layer, single, advance, failLayer) {
+    var parts = item.parts || [];
+    var n = parts.length, pending = n, broken = false;
+    var els = [], aspects = [], videos = [];
+    var fit = item.fit === 'cover' ? 'cover' : 'contain';
+    var fail = function () { if (broken) return; broken = true; failLayer(); };
+    var start = function () {
+      var grid = Layout.choose(aspects, window.innerWidth || 16, window.innerHeight || 9);
+      var pos = Layout.cells(n, grid.rows, grid.cols);
+      var longest = null, i, cell, p;
+      for (i = 0; i < n; i++) {
+        cell = els[i].parentNode;
+        cell.style.right = pos[i].right + '%'; cell.style.top = pos[i].top + '%';
+        cell.style.width = pos[i].width + '%'; cell.style.height = pos[i].height + '%';
+      }
+      for (i = 0; i < videos.length; i++) {
+        if (!longest || videos[i].duration > longest.duration) longest = videos[i];
+      }
+      for (i = 0; i < videos.length; i++) {
+        videos[i].loop = single || videos[i] !== longest;
+        p = videos[i].play(); if (p && p.then) p.then(null, function () { /* المتصفح يشغّله */ });
+      }
+      clearTimeout(guard);
+      reveal(layer);
+      if (single) return;
+      if (longest) {
+        longest.onended = advance;
+        guard = setTimeout(advance, ((isFinite(longest.duration) && longest.duration > 0 ? longest.duration : 600) + 15) * 1000);
+      } else {
+        timer = setTimeout(advance, item.duration * 1000);
+      }
+    };
+    var ready = function (i, w, h) {
+      aspects[i] = w > 0 && h > 0 ? w / h : 0;
+      pending--;
+      if (pending === 0 && !broken) start();
+    };
+    var addPart = function (i) {
+      var part = parts[i];
+      var cell = document.createElement('div');
+      var el;
+      cell.className = 'cell';
+      if (part.kind === 'video') {
+        el = document.createElement('video');
+        el.muted = true; el.defaultMuted = true; el.preload = 'auto';
+        el.setAttribute('playsinline', ''); el.setAttribute('muted', '');
+        el.onloadedmetadata = function () { ready(i, el.videoWidth, el.videoHeight); };
+        videos.push(el);
+      } else {
+        el = new Image();
+        el.onload = function () { ready(i, el.naturalWidth, el.naturalHeight); };
+      }
+      el.style.objectFit = fit;
+      el.onerror = fail;
+      els[i] = el;
+      cell.appendChild(el); layer.appendChild(cell);
+      el.src = part.url;
+    };
+    var j;
+    if (n < 2 || !Layout) { fail(); return; }
+    layer.className = 'layer group';
+    stage.appendChild(layer);
+    guard = setTimeout(fail, 30000); // ملف لم يُحمَّل: نتخطى المجموعة
+    for (j = 0; j < n; j++) addPart(j);
   }
 
   function sameItem(a, b) { return a && b && a.id === b.id && a.updated === b.updated; }
@@ -209,7 +286,12 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
   // العنصر الوحيد في القائمة يُعرض بلا موعد انتقال (والفيديو يتكرر). لما تُضاف له عناصر
   // نحدد موعد انتقاله الآن، وإلا بقيت الشاشة عليه حتى إعادة التحميل
   function resumeRotation(item) {
+    var at;
     clearTimers();
+    if (item.type === 'group') { // فيديوهاتها كلها تتكرر: الأبسط إعادة عرضها بنظام التبادل
+      at = cur; stopPlayback(); cur = at - 1; next();
+      return;
+    }
     if (item.type === 'video' && curVideo) {
       curVideo.loop = false; // يكمل دورته الحالية ثم ينتقل عند انتهائه
       var left = isFinite(curVideo.duration) && curVideo.duration > 0 ? curVideo.duration - curVideo.currentTime : 600;
@@ -225,12 +307,20 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
     return CFG.url.replace(/\/+$/, '') + '/storage/v1/object/public/' + CFG.bucket + '/' + parts.join('/');
   }
   function toItems(rows) {
-    var out = [], i, r;
+    var out = [], i, j, r, parts;
     for (i = 0; i < (rows || []).length; i++) {
       r = rows[i];
+      parts = null;
+      if (r.type === 'group') {
+        parts = [];
+        for (j = 0; j < (r.parts || []).length; j++) {
+          parts.push({ kind: r.parts[j].kind === 'video' ? 'video' : 'image', url: mediaUrl(r.parts[j].file) });
+        }
+      }
       out.push({
         id: r.id, type: r.type, updated: r.updated,
         url: r.type === 'url' ? r.url : (r.file ? mediaUrl(r.file) : null),
+        parts: parts,
         text: r.text, bg: r.bg, fg: r.fg, fit: r.fit, duration: Math.max(2, Number(r.duration) || 10)
       });
     }
@@ -283,16 +373,22 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
       return;
     }
     pairSince = 0;
+    // الموعد التالي أولًا: أي خطأ في عرض القائمة لا يوقف الاستعلام
+    schedule(POLL_MS);
+    if (Date.now() - lastUpdateCheck > UPDATE_CHECK_MS) { lastUpdateCheck = Date.now(); checkUpdate(); }
+    if (data.unchanged) return; // القاعدة أكدت أن القائمة كما هي
     screenName = data.name || '';
     var wasPairing = isPairing();
     if (wasPairing) { overlay.innerHTML = ''; hideOverlay(); }
     if (data.version !== version || wasPairing) {
       version = data.version;
       lsSet(K_PLAYLIST, JSON.stringify({ device: deviceId, name: screenName, version: version, items: data.items }));
-      applyPlaylist(toItems(data.items));
+      try {
+        applyPlaylist(toItems(data.items));
+      } catch (e) {
+        stopPlayback(); version = null; // نطلب القائمة كاملة من جديد في الاستعلام التالي
+      }
     }
-    schedule(POLL_MS);
-    if (Date.now() - lastUpdateCheck > UPDATE_CHECK_MS) { lastUpdateCheck = Date.now(); checkUpdate(); }
   }
   function offline() {
     fails++;
@@ -312,7 +408,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 
   function poll() {
     var x = new XMLHttpRequest();
-    var done = false;
+    var done = false, body;
     var once = function (fn) { return function () { if (done) return; done = true; fn(); }; };
     x.open('POST', CFG.url.replace(/\/+$/, '') + '/rest/v1/rpc/sg_player_poll', true);
     x.setRequestHeader('apikey', CFG.key);
@@ -322,12 +418,18 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
       var data = null;
       try { data = JSON.parse(x.responseText); } catch (e) { data = null; }
       if (x.status === 200 && data && typeof data.paired === 'boolean') handle(data);
+      else if (x.status === 404 && !legacyPoll && data && data.code === 'PGRST202') { legacyPoll = true; poll(); }
       else if (x.status >= 400 && x.status < 500) rejected(data);
       else offline();
     });
     x.onerror = once(offline);
     x.ontimeout = once(offline);
-    x.send(JSON.stringify({ p_device_id: deviceId, p_hb: HB }));
+    body = { p_device_id: deviceId, p_hb: HB };
+    if (!legacyPoll) {
+      // مقاس الشاشة يحدد اتجاهها في الإدارة، والإصدار يسمح برد مختصر لو القائمة لم تتغير
+      body.p_w = window.innerWidth || null; body.p_h = window.innerHeight || null; body.p_version = version;
+    }
+    x.send(JSON.stringify(body));
   }
 
   // إصدار جديد من الصفحة على السيرفر؟ أعد التحميل لتأخذه الشاشة بلا تدخل
